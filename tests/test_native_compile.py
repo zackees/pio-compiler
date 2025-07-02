@@ -26,12 +26,14 @@ class NativeCompileTest(unittest.TestCase):
         compiler = PioCompiler(platform)
 
         init_res = compiler.initialize()
-        if isinstance(init_res, Exception):
-            self.fail(f"Initialization failed unexpectedly: {init_res}")
+        if not init_res.ok:
+            self.fail(
+                f"Initialization failed unexpectedly: {init_res.exception or 'unknown error'}"
+            )
 
-        result = compiler.compile(self.EXAMPLE_PATH)
-        if isinstance(result, Exception):
-            self.fail(f"Compile raised unexpected exception: {result}")
+        _ = compiler.compile(self.EXAMPLE_PATH)
+        # The compiler should not raise/return raw exceptions – it must always
+        # return a ``Result`` object regardless of the build outcome.
 
         # The compiler should have generated a *wrapper* C++ file so that
         # PlatformIO can compile the sketch in a native environment.

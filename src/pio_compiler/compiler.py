@@ -135,8 +135,13 @@ class PioCompiler:
     # ------------------------------------------------------------------
     # API mandated by the README – initialise, build_info, compile, …
     # ------------------------------------------------------------------
-    def initialize(self) -> Result | Exception:  # noqa: D401 – *initialize* is fine
-        """Create *platformio.ini* so that subsequent builds can run."""
+    def initialize(self) -> Result:  # noqa: D401 – *initialize* is fine
+        """Create *platformio.ini* so that subsequent builds can run.
+
+        The method now always returns a :class:`Result` instance.  On failure
+        the returned object has ``ok = False`` and the raised exception is
+        captured in :pyattr:`Result.exception`.
+        """
 
         try:
             self._ini_path.write_text(
@@ -144,7 +149,10 @@ class PioCompiler:
             )
             return Result(ok=True, platform=self.platform, stdout="", stderr="")
         except Exception as exc:  # pragma: no cover
-            return exc
+            # Never propagate the raw exception – instead encapsulate it in
+            # the Result so that callers do not have to implement special
+            # ``isinstance`` checks.
+            return Result(ok=False, platform=self.platform, exception=exc)
 
     def build_info(self) -> Dict[str, Any]:  # noqa: D401 – we mirror README naming
         """Return a small JSON-serialisable dict with environment information."""
@@ -158,14 +166,24 @@ class PioCompiler:
     # --------------------------------------------------------------
     # *compile* – build a single example.
     # --------------------------------------------------------------
-    def compile(
-        self, example: Path | str
-    ) -> Result | Exception:  # noqa: D401 – spec compliance
-        """Compile *example* and return a :class:`Result` object."""
+    def compile(self, example: Path | str) -> Result:  # noqa: D401 – spec compliance
+        """Compile *example* and return a :class:`Result` object.
+
+        The method *always* returns a :class:`Result` instance.  Errors are
+        communicated by ``ok = False`` together with the corresponding
+        exception stored in :pyattr:`Result.exception`.
+        """
 
         example_path = Path(example).expanduser().resolve()
         if not example_path.exists():
-            return FileNotFoundError(f"Example path does not exist: {example_path}")
+            return Result(
+                ok=False,
+                platform=self.platform,
+                example=example_path,
+                exception=FileNotFoundError(
+                    f"Example path does not exist: {example_path}"
+                ),
+            )
 
         # ------------------------------------------------------------------
         # Prepare a PlatformIO *project directory*.
@@ -269,13 +287,10 @@ class PioCompiler:
     # --------------------------------------------------------------
     # *multi_compile* – convenience wrapper.
     # --------------------------------------------------------------
-    def multi_compile(self, examples: Sequence[Path | str]) -> List[Result | Exception]:
+    def multi_compile(self, examples: Sequence[Path | str]) -> List[Result]:
         """Compile *multiple* examples in sequence and return a list of results."""
 
-        results: List[Result | Exception] = []
-        for ex in examples:
-            results.append(self.compile(ex))
-        return results
+        return [self.compile(ex) for ex in examples]
 
     # --------------------------------------------------------------
     # Internal helpers.

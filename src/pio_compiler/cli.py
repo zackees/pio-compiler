@@ -55,25 +55,25 @@ def _run_cli(arguments: List[str]) -> int:
     compiler = PioCompiler(platform)
 
     init_result = compiler.initialize()
-    if isinstance(init_result, Exception):
-        print(f"[ERROR] Failed to initialise compiler: {init_result}")
+    if not init_result.ok:
+        print(
+            f"[ERROR] Failed to initialise compiler: {init_result.exception or 'unknown error'}"
+        )
         return 1
 
     # Compile requested examples.
     results = compiler.multi_compile(ns.src)
     exit_code = 0
     for res in results:
-        if isinstance(res, Exception):
-            print(f"[ERROR] Unexpected exception: {res}")
-            exit_code = 1
-            continue
-
         status = "OK" if res.ok else "FAIL"
         print(
             f"[{status}] {res.example} – stdout: {len(res.stdout)} bytes, stderr: {len(res.stderr)} bytes"
         )
-        if not res.ok and res.stderr:
-            print(res.stderr)
+        if not res.ok:
+            if res.exception:
+                print(f"[ERROR] {res.exception}")
+            if res.stderr:
+                print(res.stderr)
             exit_code = 1
 
     return exit_code
