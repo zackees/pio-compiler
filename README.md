@@ -1,21 +1,58 @@
-# template-python-cmd
-A template for quickly making a python lib that has a command line program attached
+# pio-comile
 
-[![Linting](../../actions/workflows/lint.yml/badge.svg)](../../actions/workflows/lint.yml)
+This is a special project to efficiently compile code using platformio.
 
-[![MacOS_Tests](../../actions/workflows/push_macos.yml/badge.svg)](../../actions/workflows/push_macos.yml)
-[![Ubuntu_Tests](../../actions/workflows/push_ubuntu.yml/badge.svg)](../../actions/workflows/push_ubuntu.yml)
-[![Win_Tests](../../actions/workflows/push_win.yml/badge.svg)](../../actions/workflows/push_win.yml)
+## Runtime
 
-Replace `template-python-cmd` and `template_python_cmd` with your command. Run tox until it's
-correct.
+  * `pio-compile native --src test/test_data/example/Blink --src test/test_data/example/Blur`
 
-To develop software, run `. ./activate.sh`
 
-# Windows
+## Implimentation details
 
-This environment requires you to use `git-bash`.
+@dataclass
+class Platform(str):
+  name: str
+  platformio_ini: str
 
-# Linting
+@dataclass
+class Result:
+  bool ok: bool
+  platform: Platform
+  example: Path | None
+  stdout: str
+  stderr: str
+  build_info: str
+  exception: Exception | None
 
-Run `./lint.sh` to find linting errors using `pylint`, `flake8` and `mypy`.
+class PioCompiler:
+  def __init__(platform: Platform) -> None
+  def initialize() -> Result | Exception
+  def build_info() -> dict
+  def compile(example: Path) -> Result | Exception
+  def multi_compile(examples: list[Path]) -> list[Result | Exception]
+
+
+## Examples
+
+ESP32_S3 = Platform(
+    "esp32s3",
+    platformio_ini = "..."
+)
+
+s3_compiler = PioCompiler(ESPESP32_S332)
+result_or_err = s3_compiler.initialize()
+if isisntance(result_or_error, Exception)
+  raise result_or_error
+
+print(f"\nInitializing {ESP32_S3} success!")
+
+result_or_error = s3_compiler.compile("examples/Blink")
+if !ok:
+  print(f"Error happened with {result_or_error}")
+  raise Exception from result_or_error
+
+print(f"Compiling examples/Blink successful!")
+sys.exit(0)
+  
+
+  
