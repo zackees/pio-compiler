@@ -39,3 +39,8 @@ bash lint
 bash test
 ```
 and ensure both commands exit successfully.
+
+## Test-Driven Development (TDD)
+- For every new piece of functionality, **write failing tests first** that capture the desired (idealised) public API or behaviour.
+- Only after the tests are in place should you implement or modify code to make those tests pass.
+- Iterate until the test-suite is green before moving on to new work.
