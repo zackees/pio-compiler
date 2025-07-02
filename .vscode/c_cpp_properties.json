@@ -1,0 +1,34 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+                "c:/Users/niteris/dev/pio-compiler/tests/test_data/examples/Blink",
+                ""
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "c:/Users/niteris/dev/pio-compiler/tests/test_data/examples/Blink",
+                    ""
+                ]
+            },
+            "defines": [
+                "PLATFORMIO=60118",
+                "FASTLED_STUB_IMPL",
+                ""
+            ],
+            "cppStandard": "c++17",
+            "compilerPath": "C:/ProgramData/chocolatey/bin/gcc.exe",
+            "compilerArgs": [
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}
