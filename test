@@ -1,5 +1,7 @@
 #!/bin/bash
 
 set -e
-echo "Running unittests"
+echo "Running unit tests with uv"
+
+# Ensure uv is installed and run pytest inside the managed virtual environment
 uv run pytest -n auto tests -v --durations=0

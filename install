@@ -17,21 +17,8 @@ if ! command -v uv &> /dev/null; then
 fi
 
 uv venv --python 3.11 --seed
-uv pip install -e .
 
-# If requirements.testing.txt exists, then install it
-if [[ -f requirements.testing.txt ]]; then
-  uv run pip install -r requirements.testing.txt
-fi
+# Install project in editable mode with dev extras for testing/linting
+uv pip install -e ".[dev]"
 
-# If activate exists, delete it
-if [[ -f activate ]]; then
-  rm activate
-fi
-
-# If Windows, then symlink .venv/Scripts/activate to .venv/bin/activate
-if [[ "$OSTYPE" == "msys" ]]; then
-  ln -s .venv/Scripts/activate ./activate
-else
-  ln -s .venv/bin/activate ./activate
-fi
+echo "Installation complete. Activate the virtual environment with: source .venv/bin/activate"

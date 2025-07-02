@@ -8,10 +8,8 @@ rm -rf .venv
 
 rm -rf *.egg-info
 rm -rf .eggs
-rm -rf .tox
 rm -rf .cache
 rm -rf .pytest_cache
-rm -rf .mypy_cache
 rm -rf .coverage
 
 # remove all *.pyc files
