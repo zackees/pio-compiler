@@ -16,7 +16,11 @@ import argparse
 import sys
 from typing import List
 
-from .compiler import PioCompiler, Platform
+from .compiler import (  # noqa: F401 – imported for type completeness
+    CompilerStream,
+    PioCompiler,
+    Platform,
+)
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -62,19 +66,26 @@ def _run_cli(arguments: List[str]) -> int:
         return 1
 
     # Compile requested examples.
-    results = compiler.multi_compile(ns.src)
+    streams = compiler.multi_compile(ns.src)
+
     exit_code = 0
-    for res in results:
-        status = "OK" if res.ok else "FAIL"
-        print(
-            f"[{status}] {res.example} – stdout: {len(res.stdout)} bytes, stderr: {len(res.stderr)} bytes"
-        )
-        if not res.ok:
-            if res.exception:
-                print(f"[ERROR] {res.exception}")
-            if res.stderr:
-                print(res.stderr)
-            exit_code = 1
+    for src_path, stream in zip(ns.src, streams):
+        print(f"[BUILD] {src_path} …")
+
+        # Consume stream output until completion.
+        accumulated: list[str] = []
+        while stream.is_done():
+            line = stream.readline(timeout=0.1)
+            if line is None:
+                # No new data yet – continue polling.
+                continue
+            accumulated.append(line)
+            # Echo live so that users see progress immediately.
+            print(line, end="")
+
+        # Build finished – summarise.
+        total_bytes = sum(len(line_) for line_ in accumulated)
+        print(f"[DONE] {src_path} – captured {total_bytes} bytes of output\n")
 
     return exit_code
 
