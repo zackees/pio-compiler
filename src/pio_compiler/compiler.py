@@ -22,10 +22,42 @@ def _default_platformio_ini(platform_name: str) -> str:  # pragma: no cover
     user to define explicitly.
     """
     if platform_name == "native":
-        # The *native* environment lets PlatformIO build a normal C/C++ project
-        # for the host architecture. It works out-of-the-box and does not
-        # require any additional tool-chains.
-        return """[env:native]\nplatform = native\nbuild_flags = -g -O2\n"""
+        # Provide an opinionated *native* configuration that is suitable for
+        # building FastLED based sketches on the host machine.  The
+        # configuration mirrors what users would typically write in a
+        # ``platformio.ini`` when experimenting locally with the *native*
+        # platform:
+        #
+        #   * The dedicated ``[platformio]`` section makes the project layout
+        #     explicit and avoids PlatformIO searching parent directories for
+        #     other configuration files.
+        #   * A custom *dev* environment is used instead of the default
+        #     *native* one because this is exactly what many real-world
+        #     projects do.  It also doubles as a litmus-test that the
+        #     compiler does not make any assumptions regarding the exact
+        #     environment name.
+        #   * ``platform = platformio/native`` is the recommended identifier
+        #     in recent PlatformIO versions (see
+        #     https://registry.platformio.org/platforms/platformio/native).
+        #   * The FastLED stub implementation allows *host* compilation
+        #     without actual LED hardware.  The ``build_flags`` mirror the
+        #     parameters used by the upstream stub project so that example
+        #     sketches such as *examples/Blink/Blink.ino* compile without
+        #     modification.
+        return """[platformio]
+src_dir = src
+
+[env:dev]
+platform = platformio/native
+
+lib_deps =
+    FastLED
+
+build_flags =
+    -DFASTLED_STUB_IMPL
+    -DFASTLED_STUB_MAIN_INCLUDE_INO=\"../examples/Blink/Blink.ino\"
+    -std=c++17
+"""
 
     # Fallback – leave it to the user; PlatformIO will error out if the
     # supplied configuration is invalid.  Keeping the string minimal avoids
