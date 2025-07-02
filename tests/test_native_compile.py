@@ -2,7 +2,8 @@ import shutil
 import unittest
 from pathlib import Path
 
-from pio_compiler import PioCompiler, Platform
+from pio_compiler import Platform
+from pio_compiler.compiler import PioCompilerImpl
 
 
 class NativeCompileTest(unittest.TestCase):
@@ -23,7 +24,7 @@ class NativeCompileTest(unittest.TestCase):
 
     def test_compile_blink_native(self) -> None:  # noqa: D401
         platform = Platform("native")  # Use built-in default configuration
-        compiler = PioCompiler(platform)
+        compiler = PioCompilerImpl(platform)
 
         init_res = compiler.initialize()
         if not init_res.ok:

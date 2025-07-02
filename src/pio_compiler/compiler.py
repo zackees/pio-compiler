@@ -12,11 +12,11 @@ from .types import Platform, Result
 __all__ = [
     "Platform",
     "Result",
-    "PioCompiler",
+    "PioCompilerImpl",
 ]
 
 
-class PioCompiler:
+class PioCompilerImpl:
     """High-level wrapper around the *platformio* command-line interface.
 
     The class purposefully avoids depending on the PlatformIO *Python* API

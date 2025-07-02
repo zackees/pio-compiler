@@ -1,6 +1,6 @@
 """Command-line interface entry-point for *pio_compiler*.
 
-The CLI provides a very thin wrapper around :class:`pio_compiler.compiler.PioCompiler`.
+The CLI provides a very thin wrapper around :class:`pio_compiler.compiler.PioCompilerImpl`.
 It supports *positional* platform selection and one or more ``--src`` flags to
 compile multiple examples in a single invocation.
 
@@ -18,7 +18,7 @@ from typing import List
 
 from .compiler import (  # noqa: F401 – imported for type completeness
     CompilerStream,
-    PioCompiler,
+    PioCompilerImpl,
     Platform,
 )
 
@@ -56,7 +56,7 @@ def _run_cli(arguments: List[str]) -> int:
     # Create compiler instance for the requested platform.
     # ------------------------------------------------------------------
     platform = Platform(ns.platform)
-    compiler = PioCompiler(platform)
+    compiler = PioCompilerImpl(platform)
 
     init_result = compiler.initialize()
     if not init_result.ok:

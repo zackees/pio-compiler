@@ -24,7 +24,7 @@ class Result:
   build_info: str
   exception: Exception | None
 
-class PioCompiler:
+class PioCompilerImpl:
   def __init__(platform: Platform) -> None
   def initialize() -> Result | Exception
   def build_info() -> dict
@@ -39,7 +39,7 @@ ESP32_S3 = Platform(
     platformio_ini = "..."
 )
 
-s3_compiler = PioCompiler(ESPESP32_S332)
+s3_compiler = PioCompilerImpl(ESPESP32_S332)
 result_or_err = s3_compiler.initialize()
 if isisntance(result_or_error, Exception)
   raise result_or_error
