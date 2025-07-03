@@ -74,8 +74,12 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to a PlatformIO example or project to compile.  Can be supplied multiple times.",
     )
-    mutex = parser.add_mutually_exclusive_group()
-    mutex.add_argument(
+    # ------------------------------------------------------------------
+    # Cache directory is *independent* of build mode.  Users may combine
+    # --cache with either fast (default) **or** --rebuild.
+    # ------------------------------------------------------------------
+
+    parser.add_argument(
         "--cache",
         metavar="PATH",
         dest="cache",
@@ -87,16 +91,28 @@ def _build_argument_parser() -> argparse.ArgumentParser:
             "between independent compilations for significantly faster builds."
         ),
     )
+
+    # Build mode selection – exactly **one** of the following may be chosen.
+    mutex = parser.add_mutually_exclusive_group()
+
+    # (1) Force a *full* rebuild – inverse of the default *fast* mode.
     mutex.add_argument(
-        "--fast",
-        dest="fast",
+        "--rebuild",
+        dest="rebuild",
         action="store_true",
         help=(
-            "Enable *fast* compile mode.  The compiler fingerprints the sketch "
-            "and platform configuration and re-uses a persistent build "
-            "directory between invocations, dramatically reducing latency "
-            "for subsequent builds of the same sketch."
+            "Disable incremental *fast* builds and always start from a clean "
+            "work directory.  Equivalent to the previous default behaviour "
+            "before --fast became the standard mode."
         ),
+    )
+
+    # (2) Keep the legacy --fast flag for backwards-compatibility but hide it
+    mutex.add_argument(
+        "--fast",
+        dest="fast_flag",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     return parser
 
@@ -161,7 +177,7 @@ def _run_cli(arguments: List[str]) -> int:
                 # argparse report the error later.
 
             # Handle *boolean* flags that do not take a value.
-            if token == "--fast":
+            if token in {"--fast", "--rebuild"}:
                 extra_flags.append(token)
                 i += 1
                 continue
@@ -170,7 +186,7 @@ def _run_cli(arguments: List[str]) -> int:
             # **not** a recognised flag).
             if (
                 token.startswith("--")
-                and token not in {"--src", "--cache", "--fast"}
+                and token not in {"--src", "--cache", "--fast", "--rebuild"}
                 and platform_name is None
             ):
                 platform_name = token.lstrip("-")
@@ -201,9 +217,25 @@ def _run_cli(arguments: List[str]) -> int:
     parser = _build_argument_parser()
     ns = parser.parse_args(arguments)
 
+    # ------------------------------------------------------------------
+    # Derive the *fast* boolean according to the selected build mode.  The
+    # precedence order is:
+    #   1. --rebuild   → fast = False
+    #   2. --cache     → fast = False (cannot combine with fast mode)
+    #   3. --fast flag → fast = True  (legacy alias, already default)
+    #   4. default     → fast = True
+    # ------------------------------------------------------------------
+
+    fast_mode: bool = True  # default – incremental fast builds
+
+    if getattr(ns, "rebuild", False):
+        fast_mode = False
+    elif getattr(ns, "fast_flag", False):
+        fast_mode = True
+
     # Convert argparse.Namespace → dataclass instance for type-safety.
     cli_args = CLIArguments(
-        platform=ns.platform, src=ns.src, cache=ns.cache, fast=ns.fast
+        platform=ns.platform, src=ns.src, cache=ns.cache, fast=fast_mode
     )
 
     # ------------------------------------------------------------------
