@@ -34,11 +34,20 @@ extern "C" {
 typedef bool boolean;
 typedef uint8_t byte;
 
+// -------------------------------------------------------------
+// Core timing helpers – always declare so headers can use them
+// FastLED's stub generic header expects **exactly** these signatures.
+// -------------------------------------------------------------
+uint32_t millis(void);
+uint32_t micros(void);
+void     delay(int ms);
+void     delayMicroseconds(unsigned int us);
+
 // Pin functions (no-op implementations for native platform)
 void pinMode(uint8_t pin, uint8_t mode);
 void digitalWrite(uint8_t pin, uint8_t val);
-int digitalRead(uint8_t pin);
-int analogRead(uint8_t pin);
+int  digitalRead(uint8_t pin);
+int  analogRead(uint8_t pin);
 void analogReference(uint8_t mode);
 void analogWrite(uint8_t pin, int val);
 
