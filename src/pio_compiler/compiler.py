@@ -32,9 +32,20 @@ class PioCompilerImpl:
     #: test environments that do not have PlatformIO installed.
     _SIMULATE_ENV = "PIO_COMPILER_SIMULATE"
 
-    def __init__(self, platform: Platform, work_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        platform: Platform,
+        work_dir: Optional[Path] = None,
+        *,
+        fast_mode: bool = False,
+    ) -> None:
         self.platform = platform
-        logger.debug("Creating PioCompilerImpl for platform %s", platform.name)
+        self.fast_mode = fast_mode
+        logger.debug(
+            "Creating PioCompilerImpl for platform %s (fast_mode=%s)",
+            platform.name,
+            fast_mode,
+        )
         # Work in a dedicated temporary directory unless the caller wants a
         # persistent *work_dir*.
         self._work_dir = (
@@ -136,14 +147,22 @@ class PioCompilerImpl:
                 print(f"[UNO] Project directory: {project_dir}")
                 print(f"[UNO] Source directory:   {src_dir}")
 
+            copied_paths: list[str] = []
+
             if example_path.is_dir():
                 # Copy everything from the example directory into *src*.
                 for item in example_path.iterdir():
                     dest_path = src_dir / item.name
                     if item.is_file():
                         shutil.copy(item, dest_path)
+                        copied_paths.append(str(dest_path.relative_to(project_dir)))
                     elif item.is_dir():
+                        # Avoid *FileExistsError* when reusing the same work
+                        # directory (fast mode) across multiple invocations.
+                        if dest_path.exists():
+                            continue
                         shutil.copytree(item, dest_path)
+                        copied_paths.append(str(dest_path.relative_to(project_dir)))
                     else:
                         # Handle other types (symlinks, etc.) gracefully
                         logger.warning(f"Skipping unknown file type: {item}")
@@ -211,14 +230,32 @@ class PioCompilerImpl:
                                     "}\n"
                                 )
                             wrapper_path.write_text(wrapper_content, encoding="utf-8")
+                            copied_paths.append(
+                                str(wrapper_path.relative_to(project_dir))
+                            )
             else:
                 # Single file – copy and rename to *main*.
-                shutil.copy(example_path, src_dir / f"main{example_path.suffix}")
+                dest_file = src_dir / f"main{example_path.suffix}"
+                shutil.copy(example_path, dest_file)
+                copied_paths.append(str(dest_file.relative_to(project_dir)))
 
             # Write platformio.ini in project_dir with user-provided contents.
-            (project_dir / "platformio.ini").write_text(
-                self.platform.platformio_ini or "", encoding="utf-8"
-            )
+            ini_path = project_dir / "platformio.ini"
+            ini_path.write_text(self.platform.platformio_ini or "", encoding="utf-8")
+
+            # ------------------------------------------------------------------
+            # Persist list of copied/generated paths so that external tools (and
+            # the *fast compile* cache eviction logic) can remove artefacts
+            # deterministically.
+            # ------------------------------------------------------------------
+
+            if copied_paths:
+                cleanup_file = project_dir / "_pio_cleanup.txt"
+                # Ensure parent exists (it always should) and write one path per
+                # line – use POSIX style for portability across OSes.
+                cleanup_file.write_text(
+                    "\n".join(sorted(set(copied_paths))) + "\n", encoding="utf-8"
+                )
 
         # Ensure that the *platformio* executable is present – without it the
         # compiler cannot proceed.  Fail early with a clear message instead of
@@ -232,6 +269,18 @@ class PioCompilerImpl:
         # Real build – invoke ``platformio`` and capture its output.
         # ------------------------------------------------------------------
         cmd = [pio_executable, "run", "-d", str(project_dir)]
+
+        # ------------------------- fast mode tweaks -------------------------
+        # When *fast_mode* is active **and** we detect an existing *.pio*
+        # directory we assume that the build directory contains artefacts from
+        # a previous compilation.  We therefore disable the *auto-clean*
+        # behaviour so that PlatformIO keeps those artefacts and performs an
+        # *incremental* build instead of starting from scratch.  Turning off
+        # the Library Dependency Finder (LDF) further speeds up warm builds
+        # because dependency scanning can take several seconds on large
+        # projects.
+        if self.fast_mode and (project_dir / ".pio").exists():
+            cmd.append("--disable-auto-clean")
 
         # Enable a *light* verbose mode for the *uno* platform so that
         # PlatformIO prints the executed commands as well as the paths of

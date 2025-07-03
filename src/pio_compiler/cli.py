@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,13 @@ class CLIArguments:
 
     platform: str
     src: list[str]
+    # Optional path to a *global* PlatformIO build cache directory.  When
+    # provided *pio_compiler* injects the corresponding ``build_cache_dir``
+    # option into the generated *platformio.ini* so that subsequent builds
+    # share artefacts across independent project directories.
+    cache: str | None = None
+    # Enable *fast* mode (persistent work directory with incremental builds)
+    fast: bool = False
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -65,6 +73,30 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         action="append",
         required=True,
         help="Path to a PlatformIO example or project to compile.  Can be supplied multiple times.",
+    )
+    mutex = parser.add_mutually_exclusive_group()
+    mutex.add_argument(
+        "--cache",
+        metavar="PATH",
+        dest="cache",
+        required=False,
+        help=(
+            "Path to a *global* PlatformIO build cache directory.  Injects the "
+            "'build_cache_dir' option into the temporary platformio.ini that "
+            "pio_compiler generates for each build.  Re-uses cached object files "
+            "between independent compilations for significantly faster builds."
+        ),
+    )
+    mutex.add_argument(
+        "--fast",
+        dest="fast",
+        action="store_true",
+        help=(
+            "Enable *fast* compile mode.  The compiler fingerprints the sketch "
+            "and platform configuration and re-uses a persistent build "
+            "directory between invocations, dramatically reducing latency "
+            "for subsequent builds of the same sketch."
+        ),
     )
     return parser
 
@@ -101,24 +133,66 @@ def _run_cli(arguments: List[str]) -> int:
             # Already in canonical form – nothing to do.
             return argv
 
+        # ------------------------------------------------------------------
+        # The alternative syntax supports additional **global** flags such as
+        # ``--cache`` which themselves accept a *value* argument.  We need to
+        # preserve these flag/value pairs verbatim while still rewriting the
+        # positional tokens into the canonical form.
+        # ------------------------------------------------------------------
+
         platform_name: str | None = None
         src_paths: list[str] = []
+        extra_flags: list[str] = []
 
-        for token in argv:
-            if token.startswith("--") and token != "--src" and platform_name is None:
-                # Treat *first* dash-prefixed token as platform selector.
+        i = 0
+        while i < len(argv):
+            token = argv[i]
+
+            # Handle recognised *flag* tokens that take exactly **one** value
+            # argument which needs to be kept together with the flag.
+            if token == "--cache":
+                # Ensure that a *value* follows the flag to avoid *IndexError*
+                # in malformed invocations.
+                if i + 1 < len(argv):
+                    extra_flags.extend([token, argv[i + 1]])
+                    i += 2
+                    continue
+                # Malformed – no value after --cache – fall through and let
+                # argparse report the error later.
+
+            # Handle *boolean* flags that do not take a value.
+            if token == "--fast":
+                extra_flags.append(token)
+                i += 1
+                continue
+
+            # Detect the *platform* token (first dash-prefixed argument that is
+            # **not** a recognised flag).
+            if (
+                token.startswith("--")
+                and token not in {"--src", "--cache", "--fast"}
+                and platform_name is None
+            ):
                 platform_name = token.lstrip("-")
-            else:
-                src_paths.append(token)
+                i += 1
+                continue
+
+            # Everything else is considered a *source* path.
+            src_paths.append(token)
+            i += 1
 
         if platform_name is None:
             # No recognisable alternative syntax – return unchanged.
             return argv
 
-        # Build canonical argv.
+        # Build canonical argv:  <platform> --src <path1> --src <path2> … <extra_flags>
         new_argv: list[str] = [platform_name]
         for path in src_paths:
             new_argv.extend(["--src", path])
+
+        # Append the preserved *flag* tokens at the end so that argparse sees
+        # them in their original form.
+        new_argv.extend(extra_flags)
 
         return new_argv
 
@@ -128,14 +202,119 @@ def _run_cli(arguments: List[str]) -> int:
     ns = parser.parse_args(arguments)
 
     # Convert argparse.Namespace → dataclass instance for type-safety.
-    cli_args = CLIArguments(platform=ns.platform, src=ns.src)
+    cli_args = CLIArguments(
+        platform=ns.platform, src=ns.src, cache=ns.cache, fast=ns.fast
+    )
 
     # ------------------------------------------------------------------
     # Create compiler instance for the requested platform.
     # ------------------------------------------------------------------
     platform = Platform(cli_args.platform)
-    logger.debug("Initialising compiler for platform %s", platform.name)
-    compiler = PioCompiler(platform)
+
+    # ------------------------------------------------------------------
+    # Inject *build_cache_dir* into the generated *platformio.ini* when the
+    # user supplied a ``--cache`` directory.  The helper keeps the modification
+    # logic contained so that the rest of the compiler remains unchanged.
+    # ------------------------------------------------------------------
+
+    if cli_args.cache:
+
+        def _with_build_cache_dir(base_ini: str | None, cache_dir: str) -> str:
+            """Return *base_ini* with a 'build_cache_dir' setting injected.
+
+            The function ensures that a ``[platformio]`` section exists and
+            adds or updates the ``build_cache_dir`` option accordingly.
+            """
+
+            if base_ini is None:
+                base_ini = ""
+
+            lines = base_ini.splitlines()
+
+            # Locate the [platformio] section.
+            try:
+                section_idx = next(
+                    idx
+                    for idx, line in enumerate(lines)
+                    if line.strip().lower() == "[platformio]"
+                )
+            except StopIteration:
+                # Section missing – prepend a new one.
+                header = f"[platformio]\nbuild_cache_dir = {cache_dir}\n"
+                # Keep existing INI content after an empty line for readability.
+                if lines:
+                    header += "\n"
+                return header + "\n".join(lines)
+
+            # Section exists – determine where it ends (next section header or EOF).
+            next_section_idx = next(
+                (
+                    idx
+                    for idx, line in enumerate(
+                        lines[section_idx + 1 :], start=section_idx + 1
+                    )
+                    if line.lstrip().startswith("[")
+                ),
+                len(lines),
+            )
+
+            # Scan for an existing build_cache_dir setting.
+            for idx in range(section_idx + 1, next_section_idx):
+                if lines[idx].split("=")[0].strip() == "build_cache_dir":
+                    lines[idx] = f"build_cache_dir = {cache_dir}"
+                    break
+            else:
+                # Not present – insert right after the section header.
+                lines.insert(section_idx + 1, f"build_cache_dir = {cache_dir}")
+
+            return "\n".join(lines) + ("\n" if base_ini.endswith("\n") else "")
+
+        from pathlib import Path as _Path
+
+        abs_cache_dir = str(_Path(cli_args.cache).expanduser().resolve())
+        platform.platformio_ini = _with_build_cache_dir(
+            platform.platformio_ini, abs_cache_dir
+        )
+
+    # ------------------------------------------------------------------
+    # *Fast* mode – compute fingerprinted work directory and configure
+    # incremental build behaviour.
+    # ------------------------------------------------------------------
+
+    # *Optional* values filled only when --fast is active.  Pre-declare so that
+    # static type checkers do not report "possibly unbound" accesses later.
+    fast_root: Path | None = None
+    fast_dir: Path | None = None
+    fingerprint: str | None = None
+
+    if cli_args.fast:
+        if len(cli_args.src) != 1:
+            logger.error("--fast mode supports exactly one --src path at the moment.")
+            return 1
+
+        import hashlib
+
+        src_path = Path(cli_args.src[0]).expanduser().resolve()
+        hash_input = f"{src_path}:{platform.name}".encode()
+        fingerprint = hashlib.sha256(hash_input).hexdigest()[:12]
+
+        fast_root = Path.cwd() / ".tpo_fast_cache"
+        fast_root.mkdir(exist_ok=True)
+        fast_dir = fast_root / fingerprint
+
+        if fast_dir.exists():
+            print(f"[FAST] Cache hit – using cache directory: {fast_dir}")
+        else:
+            print(f"[FAST] Cache miss – creating cache directory: {fast_dir}")
+            fast_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"[FAST] Using cache directory: {fast_dir}")
+
+    compiler = PioCompiler(
+        platform,
+        work_dir=fast_dir,
+        fast_mode=cli_args.fast,
+    )
 
     init_result = compiler.initialize()
     if not init_result.ok:
@@ -202,6 +381,37 @@ def _run_cli(arguments: List[str]) -> int:
             logger.error("[FAILED] %s – platformio exited with %d", src_path, proc_rc)
             print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
             exit_code = 1
+        else:
+            # Build succeeded – when running in *fast* mode we need to update
+            # the on-disk LRU index **after** the first successful build** so
+            # that failed/partial builds never pollute the cache.
+            if (
+                cli_args.fast
+                and fast_root is not None
+                and fast_dir is not None
+                and fingerprint is not None
+            ):
+                try:
+                    from disklru import DiskLRUCache
+
+                    index_path = fast_root / "build_index.db"
+                    lru = DiskLRUCache(str(index_path), max_entries=10)
+
+                    # Put/refresh entry for the current fingerprint.  The
+                    # returned value is not used – DiskLRUCache handles
+                    # eviction transparently.
+                    lru.put(fingerprint, str(fast_dir))
+
+                    # Clean up directories that are **no longer** referenced
+                    # by the index (e.g. after eviction).
+                    valid_keys = set(lru.keys())  # type: ignore[attr-defined]
+                    for dir_entry in fast_root.iterdir():
+                        if not dir_entry.is_dir():
+                            continue
+                        if dir_entry.name not in valid_keys:
+                            shutil.rmtree(dir_entry, ignore_errors=True)
+                except Exception as exc:  # pragma: no cover – best-effort
+                    logger.warning("Failed to update fast-cache index: %s", exc)
 
     return exit_code
 

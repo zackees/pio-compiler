@@ -7,10 +7,37 @@ from .types import Platform, Result
 
 
 class PioCompiler:
-    def __init__(self, platform: Platform) -> None:
+    def __init__(
+        self,
+        platform: Platform,
+        *,
+        work_dir: Path | None = None,
+        fast_mode: bool = False,
+    ) -> None:
+        """Create a new *PioCompiler* instance.
+
+        Parameters
+        ----------
+        platform:
+            Target *PlatformIO* platform.
+        work_dir:
+            Optional path to a *persistent* work directory.  When *None* the
+            compiler allocates a fresh temporary directory via
+            :pyfunc:`pio_compiler.tempdir.mkdtemp`.  Supplying an explicit path
+            allows callers – notably the *--fast* CLI mode – to re-use a
+            previous build directory so that subsequent invocations can
+            benefit from incremental compilation.
+        fast_mode:
+            When *True* the underlying implementation enables additional
+            optimisations such as ``--disable-auto-clean`` and
+            ``--disable-ldf`` on cache *hits* to minimise build latency.
+        """
+
         from .compiler import PioCompilerImpl
 
-        self.__impl: PioCompilerImpl = PioCompilerImpl(platform)
+        self.__impl: PioCompilerImpl = PioCompilerImpl(
+            platform, work_dir=work_dir, fast_mode=fast_mode
+        )
 
     def initialize(self) -> Result:
         return self.__impl.initialize()
