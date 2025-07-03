@@ -82,7 +82,7 @@ class CliFastBuildIntegrationTest(unittest.TestCase):
         self.assertEqual(result2.returncode, 0, "Second build failed")
 
         # The second build must report a cache *hit*.
-        self.assertIn("[FAST] Cache hit", result2.stdout)
+        self.assertIn("Fast cache [hit]", result2.stdout)
 
         # And it should be at least *somewhat* faster.  Do not be too strict –
         # CI machines are unpredictable.  Require a 20 % speed-up which is easy

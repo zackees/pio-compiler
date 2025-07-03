@@ -120,7 +120,12 @@ class PioCompilerImpl:
             if (example_path / "platformio.ini").exists():
                 project_dir = example_path
             else:
-                project_dir = self._work_dir / example_path.stem
+                # In fast mode, the work_dir is already the cache directory for this project/platform
+                # (e.g., ".tpo_fast_cache/Blink-native"), so we don't need to add the project name again
+                if self.fast_mode:
+                    project_dir = self._work_dir
+                else:
+                    project_dir = self._work_dir / example_path.stem
 
             # PlatformIO cache is inside .pio_home/.cache/tmp/
             pio_home = project_dir / ".pio_home"
@@ -161,7 +166,12 @@ class PioCompilerImpl:
             project_dir = example_path
         else:
             # Create a dedicated project inside the compiler's work dir.
-            project_dir = self._work_dir / example_path.stem
+            # In fast mode, the work_dir is already the cache directory for this project/platform
+            # (e.g., ".tpo_fast_cache/Blink-native"), so we don't need to add the project name again
+            if self.fast_mode:
+                project_dir = self._work_dir
+            else:
+                project_dir = self._work_dir / example_path.stem
             logger.debug("Creating isolated project directory %s", project_dir)
             src_dir = project_dir / "src"
             src_dir.mkdir(parents=True, exist_ok=True)
