@@ -39,15 +39,18 @@ class PioCompilerImpl:
         *,
         fast_mode: bool = False,
         disable_auto_clean: bool = False,
+        force_rebuild: bool = False,
     ) -> None:
         self.platform = platform
         self.fast_mode = fast_mode
         self.disable_auto_clean = disable_auto_clean
+        self.force_rebuild = force_rebuild
         logger.debug(
-            "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s)",
+            "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s, force_rebuild=%s)",
             platform.name,
             fast_mode,
             disable_auto_clean,
+            force_rebuild,
         )
         # Work in a dedicated temporary directory unless the caller wants a
         # persistent *work_dir*.
@@ -271,21 +274,56 @@ class PioCompilerImpl:
         ), "PlatformIO executable not found in PATH – cannot compile."
 
         # ------------------------------------------------------------------
+        # Set up environment for PlatformIO commands
+        # ------------------------------------------------------------------
+        import os
+
+        pio_home = project_dir / ".pio_home"
+        pio_home.mkdir(exist_ok=True)
+        env = os.environ.copy()
+        env["PLATFORMIO_CORE_DIR"] = str(pio_home)
+
+        # ------------------------------------------------------------------
         # Real build – invoke ``platformio`` and capture its output.
         # ------------------------------------------------------------------
+
+        # First, handle force rebuild by running clean if requested
+        if self.force_rebuild:
+            logger.debug("Force rebuild requested - running clean first")
+            clean_cmd = [
+                pio_executable,
+                "run",
+                "-d",
+                str(project_dir),
+                "--target",
+                "clean",
+            ]
+            logger.debug("Executing clean command: %s", clean_cmd)
+
+            # Run clean command synchronously
+            clean_result = subprocess.run(
+                clean_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=env,
+            )
+
+            if clean_result.returncode != 0:
+                logger.warning(
+                    "Clean command failed with exit code %d: %s",
+                    clean_result.returncode,
+                    clean_result.stdout,
+                )
+                # Continue with build anyway - sometimes clean fails but build still works
+            else:
+                logger.debug("Clean completed successfully")
+
+        # Build the main compile command
         cmd = [pio_executable, "run", "-d", str(project_dir)]
 
-        # ------------------------- fast mode tweaks -------------------------
-        # When *fast_mode* is active **and** we detect an existing *.pio*
-        # directory we assume that the build directory contains artefacts from
-        # a previous compilation.  We therefore disable the *auto-clean*
-        # behaviour so that PlatformIO keeps those artefacts and performs an
-        # *incremental* build instead of starting from scratch.  Turning off
-        # the Library Dependency Finder (LDF) further speeds up warm builds
-        # because dependency scanning can take several seconds on large
-        # projects.
-        if self.fast_mode and (project_dir / ".pio").exists():
-            cmd.append("--disable-auto-clean")
+        # Always pass --disable-auto-clean to platformio (new default behavior)
+        cmd.append("--disable-auto-clean")
 
         # Enable a *light* verbose mode for the *uno* platform so that
         # PlatformIO prints the executed commands as well as the paths of
@@ -307,12 +345,6 @@ class PioCompilerImpl:
         # triggers a *RuntimeWarning* on Python ≥3.9 when the stream is opened
         # in *binary* mode (the default when *text* is *False*).  Default
         # buffering avoids the warning while still providing timely output.
-        import os
-
-        pio_home = project_dir / ".pio_home"
-        pio_home.mkdir(exist_ok=True)
-        env = os.environ.copy()
-        env["PLATFORMIO_CORE_DIR"] = str(pio_home)
 
         proc = subprocess.Popen(
             cmd,

@@ -14,6 +14,7 @@ class PioCompiler:
         work_dir: Path | None = None,
         fast_mode: bool = False,
         disable_auto_clean: bool = False,
+        force_rebuild: bool = False,
     ) -> None:
         """Create a new *PioCompiler* instance.
 
@@ -35,6 +36,10 @@ class PioCompiler:
         disable_auto_clean:
             When *True*, disables automatic cleanup of temporary directories
             at interpreter shutdown. Useful for debugging build artifacts.
+        force_rebuild:
+            When *True*, forces a full clean rebuild by running 'platformio run
+            --target clean' before compilation. This removes all build artifacts
+            and starts fresh.
         """
 
         from .compiler import PioCompilerImpl
@@ -44,6 +49,7 @@ class PioCompiler:
             work_dir=work_dir,
             fast_mode=fast_mode,
             disable_auto_clean=disable_auto_clean,
+            force_rebuild=force_rebuild,
         )
 
     def initialize(self) -> Result:

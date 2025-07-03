@@ -214,9 +214,8 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         dest="rebuild",
         action="store_true",
         help=(
-            "Disable incremental *fast* builds and always start from a clean "
-            "work directory.  Equivalent to the previous default behaviour "
-            "before --fast became the standard mode."
+            "Force a full clean rebuild by running 'platformio run --target clean' "
+            "before compilation. This removes all build artifacts and starts fresh."
         ),
     )
 
@@ -226,18 +225,6 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         dest="fast_flag",
         action="store_true",
         help=argparse.SUPPRESS,
-    )
-
-    parser.add_argument(
-        "--keep-build-dir",
-        dest="keep_build_dir",
-        action="store_true",
-        help=(
-            "Keep temporary build directories after the process exits. "
-            "Disables the automatic clean-up performed by pio_compiler so "
-            "that generated build artefacts remain available for manual "
-            "inspection and debugging."
-        ),
     )
 
     return parser
@@ -442,7 +429,8 @@ def _run_cli(arguments: List[str]) -> int:
             plat_obj,
             work_dir=fast_dir if fast_mode else None,
             fast_mode=fast_mode,
-            disable_auto_clean=getattr(ns, "keep_build_dir", False),
+            disable_auto_clean=False,
+            force_rebuild=getattr(ns, "rebuild", False),
         )
         init_result = compiler.initialize()
         if not init_result.ok:
