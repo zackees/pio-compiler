@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import logging
 import shutil
-import tempfile
-import zipfile
 from pathlib import Path
 from typing import Dict
-from urllib.request import urlopen
+
+from .global_cache import GlobalCacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +31,12 @@ class TurboDependencyManager:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Platform cache directory
+        # Platform cache directory (local project cache)
         self.platform_cache_dir = cache_dir / "platforms"
         self.platform_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Global cache manager for framework dependencies
+        self.global_cache = GlobalCacheManager()
 
         # Known library mappings - maps library name to GitHub repo
         self.library_mappings: Dict[str, str] = {
@@ -113,7 +115,7 @@ class TurboDependencyManager:
         Raises:
             Exception: If download or extraction fails
         """
-        # Check if library is already cached
+        # Check if library is already cached locally
         library_dir = self.cache_dir / library_name.lower()
         if library_dir.exists():
             logger.debug(f"Library '{library_name}' already cached at {library_dir}")
@@ -122,75 +124,41 @@ class TurboDependencyManager:
         # Get GitHub URL and download
         github_url = self.get_github_url(library_name)
 
-        # Try multiple branch names
-        branch_names = ["main", "master", "develop"]
+        try:
+            # Use global cache for library download
+            logger.info(
+                f"Downloading library '{library_name}' from {github_url} using global cache"
+            )
+            global_cache_path = self.global_cache.get_or_download_framework(github_url)
 
-        logger.info(f"Downloading library '{library_name}' from {github_url}")
-
-        for branch_name in branch_names:
-            zip_url = f"{github_url}/archive/refs/heads/{branch_name}.zip"
-            temp_zip_path = None
+            # Create a symlink or copy from global cache to local cache
+            if library_dir.exists():
+                shutil.rmtree(library_dir)
 
             try:
-                logger.debug(f"Trying branch '{branch_name}' at {zip_url}")
-
-                # Download the zip file
-                with tempfile.NamedTemporaryFile(
-                    suffix=".zip", delete=False
-                ) as temp_file:
-                    temp_zip_path = Path(temp_file.name)
-
-                    with urlopen(zip_url) as response:
-                        temp_file.write(response.read())
-
-                # Extract the zip file
-                with zipfile.ZipFile(temp_zip_path, "r") as zip_ref:
-                    # Extract to temporary directory first
-                    with tempfile.TemporaryDirectory() as temp_extract_dir:
-                        zip_ref.extractall(temp_extract_dir)
-
-                        # Find the extracted directory (usually has format "repo-branch")
-                        extract_path = Path(temp_extract_dir)
-                        extracted_dirs = [
-                            d for d in extract_path.iterdir() if d.is_dir()
-                        ]
-
-                        if not extracted_dirs:
-                            raise Exception(
-                                f"No directories found in extracted zip for {library_name}"
-                            )
-
-                        # Use the first (and typically only) directory
-                        source_dir = extracted_dirs[0]
-
-                        # Move to final cache location
-                        if library_dir.exists():
-                            shutil.rmtree(library_dir)
-                        shutil.move(str(source_dir), str(library_dir))
-
-                # Clean up temporary zip file
-                temp_zip_path.unlink()
-
+                # Try to create a symlink first
+                library_dir.symlink_to(global_cache_path, target_is_directory=True)
                 logger.info(
-                    f"Library '{library_name}' downloaded and cached at {library_dir}"
+                    f"Library '{library_name}' symlinked from global cache to {library_dir}"
                 )
-                return library_dir
+            except OSError:
+                # On Windows, symlinks might fail due to permissions
+                # Fall back to copying the directory
+                logger.warning(
+                    "Symlink failed, copying library from global cache instead"
+                )
+                shutil.copytree(global_cache_path, library_dir)
+                logger.info(
+                    f"Library '{library_name}' copied from global cache to {library_dir}"
+                )
 
-            except Exception as e:
-                logger.debug(f"Branch '{branch_name}' failed: {e}")
-                # Clean up on failure for this branch
-                if temp_zip_path and temp_zip_path.exists():
-                    temp_zip_path.unlink()
-                if library_dir.exists():
-                    shutil.rmtree(library_dir)
+            return library_dir
 
-                # Continue to next branch
-                continue
-
-        # If we get here, all branches failed
-        error_msg = f"Failed to download library '{library_name}' from any branch: {branch_names}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        except Exception as e:
+            logger.error(
+                f"Failed to download library '{library_name}' using global cache: {e}"
+            )
+            raise
 
     def symlink_library(self, library_name: str, target_project_dir: Path) -> Path:
         """Symlink a library into a project's lib directory.
@@ -292,7 +260,7 @@ class TurboDependencyManager:
         # Normalize platform name
         normalized_name = platform_name.lower()
 
-        # Check if platform is already cached
+        # Check if platform is already cached locally
         platform_dir = self.platform_cache_dir / normalized_name
         if platform_dir.exists():
             logger.debug(f"Platform '{platform_name}' already cached at {platform_dir}")
@@ -307,75 +275,41 @@ class TurboDependencyManager:
 
         github_url = f"https://github.com/{self.platform_mappings[normalized_name]}"
 
-        # Try multiple branch names
-        branch_names = ["main", "master", "develop"]
+        try:
+            # Use global cache for framework download
+            logger.info(
+                f"Downloading platform '{platform_name}' from {github_url} using global cache"
+            )
+            global_cache_path = self.global_cache.get_or_download_framework(github_url)
 
-        logger.info(f"Downloading platform '{platform_name}' from {github_url}")
-
-        for branch_name in branch_names:
-            zip_url = f"{github_url}/archive/refs/heads/{branch_name}.zip"
-            temp_zip_path = None
+            # Create a symlink or copy from global cache to local cache
+            if platform_dir.exists():
+                shutil.rmtree(platform_dir)
 
             try:
-                logger.debug(f"Trying branch '{branch_name}' at {zip_url}")
-
-                # Download the zip file
-                with tempfile.NamedTemporaryFile(
-                    suffix=".zip", delete=False
-                ) as temp_file:
-                    temp_zip_path = Path(temp_file.name)
-
-                    with urlopen(zip_url) as response:
-                        temp_file.write(response.read())
-
-                # Extract the zip file
-                with zipfile.ZipFile(temp_zip_path, "r") as zip_ref:
-                    # Extract to temporary directory first
-                    with tempfile.TemporaryDirectory() as temp_extract_dir:
-                        zip_ref.extractall(temp_extract_dir)
-
-                        # Find the extracted directory (usually has format "repo-branch")
-                        extract_path = Path(temp_extract_dir)
-                        extracted_dirs = [
-                            d for d in extract_path.iterdir() if d.is_dir()
-                        ]
-
-                        if not extracted_dirs:
-                            raise Exception(
-                                f"No directories found in extracted zip for {platform_name}"
-                            )
-
-                        # Use the first (and typically only) directory
-                        source_dir = extracted_dirs[0]
-
-                        # Move to final cache location
-                        if platform_dir.exists():
-                            shutil.rmtree(platform_dir)
-                        shutil.move(str(source_dir), str(platform_dir))
-
-                # Clean up temporary zip file
-                temp_zip_path.unlink()
-
+                # Try to create a symlink first
+                platform_dir.symlink_to(global_cache_path, target_is_directory=True)
                 logger.info(
-                    f"Platform '{platform_name}' downloaded and cached at {platform_dir}"
+                    f"Platform '{platform_name}' symlinked from global cache to {platform_dir}"
                 )
-                return platform_dir
+            except OSError:
+                # On Windows, symlinks might fail due to permissions
+                # Fall back to copying the directory
+                logger.warning(
+                    "Symlink failed, copying platform from global cache instead"
+                )
+                shutil.copytree(global_cache_path, platform_dir)
+                logger.info(
+                    f"Platform '{platform_name}' copied from global cache to {platform_dir}"
+                )
 
-            except Exception as e:
-                logger.debug(f"Branch '{branch_name}' failed: {e}")
-                # Clean up on failure for this branch
-                if temp_zip_path and temp_zip_path.exists():
-                    temp_zip_path.unlink()
-                if platform_dir.exists():
-                    shutil.rmtree(platform_dir)
+            return platform_dir
 
-                # Continue to next branch
-                continue
-
-        # If we get here, all branches failed
-        error_msg = f"Failed to download platform '{platform_name}' from any branch: {branch_names}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        except Exception as e:
+            logger.error(
+                f"Failed to download platform '{platform_name}' using global cache: {e}"
+            )
+            raise
 
     def symlink_platform(self, platform_name: str, target_project_dir: Path) -> Path:
         """Symlink a platform into a project's platforms directory.

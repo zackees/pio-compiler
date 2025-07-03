@@ -50,8 +50,8 @@ class TurboDependencyManagerTest(TimedTestCase):
         url = self.turbo_manager.get_github_url("UnknownLibrary")
         self.assertIn("github.com/arduino-libraries/UnknownLibrary", url)
 
-    @patch("pio_compiler.turbo_deps.urlopen")
-    @patch("pio_compiler.turbo_deps.zipfile.ZipFile")
+    @patch("pio_compiler.global_cache.urlopen")
+    @patch("pio_compiler.global_cache.zipfile.ZipFile")
     def test_download_library_success(self, mock_zipfile, mock_urlopen):
         """Test successful library download and extraction."""
         # Mock the HTTP response

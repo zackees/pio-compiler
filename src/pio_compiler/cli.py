@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -28,7 +29,9 @@ from colorama import Fore, Style, init
 from pio_compiler import PioCompiler, Platform
 from pio_compiler.boards import ALL as ALL_BOARDS
 from pio_compiler.cache_manager import CacheEntry
+from pio_compiler.global_cache import GlobalCacheManager
 from pio_compiler.logging_utils import configure_logging
+from pio_compiler.tempdir import cleanup_all
 
 # Initialize colorama for Windows support
 init(autoreset=True)
@@ -311,6 +314,8 @@ class CLIArguments:
     report: str | None = None
     # List of turbo dependencies (libraries to download and symlink)
     turbo_libs: list[str] = field(default_factory=list)
+    # Purge all caches (global and local)
+    purge: bool = False
 
 
 def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
@@ -339,6 +344,7 @@ def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
         info=getattr(ns, "info", False),
         report=getattr(ns, "report", None),
         turbo_libs=getattr(ns, "turbo_libs", []),
+        purge=getattr(ns, "purge", False),
     )
 
 
@@ -483,6 +489,19 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # Purge all caches
+    parser.add_argument(
+        "--purge",
+        dest="purge",
+        action="store_true",
+        help=(
+            "Purge all caches (both global and local). This removes the global "
+            "cache directory (~/.tpo_global) and the local cache directory "
+            "(.pio_cache) if they exist. This operation runs immediately and "
+            "exits without performing any builds."
+        ),
+    )
+
     return parser
 
 
@@ -500,6 +519,60 @@ def _run_cli(arguments: List[str]) -> int:
 
     # Parse namespace into typed arguments
     args = _parse_arguments(ns)
+
+    # ------------------------------------------------------------------
+    # Handle purge operation - runs immediately and exits
+    # ------------------------------------------------------------------
+    if args.purge:
+        print(f"{_BOLD}{_CYAN}{LIGHTNING} pio-compiler purge{_RESET}")
+        print()
+
+        # Purge global cache
+        global_cache_manager = GlobalCacheManager()
+        global_cache_root = global_cache_manager.cache_root
+
+        if global_cache_root.exists():
+            print(
+                f"  {_YELLOW}{_sym('🗑️', 'X')}{_RESET}  Purging global cache: {_format_path_for_logging(global_cache_root)}"
+            )
+            try:
+                shutil.rmtree(global_cache_root)
+                print(
+                    f"  {_GREEN}{_sym('✓', 'OK')}{_RESET} Global cache purged successfully"
+                )
+            except Exception as e:
+                print(
+                    f"  {_RED}{_sym('✗', 'ERR')}{_RESET} Failed to purge global cache: {e}"
+                )
+        else:
+            print(
+                f"  {_CYAN}{_sym('ℹ', 'i')}{_RESET} Global cache directory does not exist"
+            )
+
+        # Purge local cache
+        local_cache_root = Path.cwd() / ".pio_cache"
+
+        if local_cache_root.exists():
+            print(
+                f"  {_YELLOW}{_sym('🗑️', 'X')}{_RESET}  Purging local cache: {_format_path_for_logging(local_cache_root)}"
+            )
+            try:
+                cleanup_all()
+                print(
+                    f"  {_GREEN}{_sym('✓', 'OK')}{_RESET} Local cache purged successfully"
+                )
+            except Exception as e:
+                print(
+                    f"  {_RED}{_sym('✗', 'ERR')}{_RESET} Failed to purge local cache: {e}"
+                )
+        else:
+            print(
+                f"  {_CYAN}{_sym('ℹ', 'i')}{_RESET} Local cache directory does not exist"
+            )
+
+        print()
+        print(f"{_GREEN}Cache purge completed.{_RESET}")
+        return 0
 
     # ------------------------------------------------------------------
     # Derive the *fast* boolean according to the selected build mode.  The
