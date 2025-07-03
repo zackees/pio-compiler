@@ -107,6 +107,29 @@ class PioCompilerImpl:
             "has_platformio_ini": self._ini_path.exists(),
         }
 
+    def get_pio_cache_dir(self, example: Path | str) -> str | None:
+        """Get the PlatformIO cache directory path that will be used for this build.
+
+        Returns the path to the .pio_home/.cache directory that PlatformIO uses
+        for caching build artifacts, or None if the path cannot be determined.
+        """
+        try:
+            example_path = Path(example).expanduser().resolve()
+
+            # Determine project directory
+            if (example_path / "platformio.ini").exists():
+                project_dir = example_path
+            else:
+                project_dir = self._work_dir / example_path.stem
+
+            # PlatformIO cache is inside .pio_home/.cache/tmp/
+            pio_home = project_dir / ".pio_home"
+            pio_cache = pio_home / ".cache" / "tmp"
+
+            return str(pio_cache)
+        except Exception:
+            return None
+
     # --------------------------------------------------------------
     # *compile* – build a single example.
     # --------------------------------------------------------------

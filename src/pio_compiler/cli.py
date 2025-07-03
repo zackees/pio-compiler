@@ -91,6 +91,7 @@ def _print_startup_banner(
     fast_hit: bool | None,
     cache_dir: str | None,
     rebuild: bool,
+    pio_cache_dir: str | None = None,
 ) -> None:  # noqa: D401
     """Print a colourful npm-style banner summarising build configuration."""
 
@@ -103,6 +104,15 @@ def _print_startup_banner(
         print(f"  {status_colour}{ROCKET} Fast cache [{status}]: {fast_dir}{_RESET}")
     elif rebuild:
         print(f"  {_MAGENTA}{HAMMER} Full rebuild – no incremental cache{_RESET}")
+
+    # Show PlatformIO build cache directory with color coding
+    if pio_cache_dir is not None:
+        # Yellow for rebuild (clean build), Green for incremental build
+        cache_colour = _YELLOW if rebuild else _GREEN
+        cache_status = "clean build" if rebuild else "incremental"
+        print(
+            f"  {cache_colour}{PACKAGE} PIO cache [{cache_status}]: {pio_cache_dir}{_RESET}"
+        )
 
     if cache_dir is not None:
         print(f"  {_CYAN}{PACKAGE} Global PIO cache: {cache_dir}{_RESET}")
@@ -408,23 +418,6 @@ def _run_cli(arguments: List[str]) -> int:
                 fast_dir.mkdir(parents=True, exist_ok=True)
                 print(f"[FAST] Using cache directory: {fast_dir}")
 
-            # Banner per platform
-            _print_startup_banner(
-                fast_mode=True,
-                fast_dir=fast_dir,
-                fast_hit=fast_hit,
-                cache_dir=ns.cache,
-                rebuild=False,
-            )
-        else:
-            _print_startup_banner(
-                fast_mode=False,
-                fast_dir=None,
-                fast_hit=None,
-                cache_dir=ns.cache,
-                rebuild=True,
-            )
-
         compiler = PioCompiler(
             plat_obj,
             work_dir=fast_dir if fast_mode else None,
@@ -440,7 +433,33 @@ def _run_cli(arguments: List[str]) -> int:
                 init_result.exception,
             )
             return 1
+
+        # Get PlatformIO cache directory for banner display
+        pio_cache_dir = None
+        if src_list:
+            pio_cache_dir = compiler.get_pio_cache_dir(src_list[0])
+
         compilers.append((plat_name, compiler))
+
+        # Display banner after compiler is initialized
+        if fast_mode:
+            _print_startup_banner(
+                fast_mode=True,
+                fast_dir=fast_dir,
+                fast_hit=fast_hit,
+                cache_dir=ns.cache,
+                rebuild=False,
+                pio_cache_dir=pio_cache_dir,
+            )
+        else:
+            _print_startup_banner(
+                fast_mode=False,
+                fast_dir=None,
+                fast_hit=None,
+                cache_dir=ns.cache,
+                rebuild=True,
+                pio_cache_dir=pio_cache_dir,
+            )
 
     # Compile for each platform
     src_paths = [Path(p) for p in src_list]

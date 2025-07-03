@@ -1,5 +1,6 @@
 from concurrent.futures import Future
 from pathlib import Path
+from typing import Any
 
 from .compiler_stream import CompilerStream
 from .logging_utils import configure_logging
@@ -81,6 +82,14 @@ class PioCompiler:
 
     def work_dir(self) -> Path:
         return self.__impl._work_dir
+
+    def build_info(self) -> dict[str, Any]:
+        """Return build information."""
+        return self.__impl.build_info()
+
+    def get_pio_cache_dir(self, example: Path | str) -> str | None:
+        """Get the PlatformIO cache directory path that will be used for this build."""
+        return self.__impl.get_pio_cache_dir(example)
 
 
 __all__ = [
