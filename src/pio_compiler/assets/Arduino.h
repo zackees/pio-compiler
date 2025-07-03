@@ -58,8 +58,7 @@ void     delayMicroseconds(unsigned int us);
 // Pin functions (no-op implementations for native platform)
 void pinMode(uint8_t pin, uint8_t mode);
 void digitalWrite(uint8_t pin, uint8_t val);
-int  digitalRead(uint8_t pin);
-int  analogRead(uint8_t pin);
+// digitalRead/analogRead provided as static inline stubs below
 void analogReference(uint8_t mode);
 void analogWrite(uint8_t pin, int val);
 
@@ -194,6 +193,10 @@ extern HardwareSerial Serial1;  // For MIDI communication
 #define sei()
 #define interrupts() sei()
 #define noInterrupts() cli()
+
+// Inline stub pin reads for native platform
+static inline int digitalRead(uint8_t /*pin*/) { return 0; }
+static inline int analogRead(uint8_t /*pin*/)  { return 0; }
 
 #ifdef __cplusplus
 }
