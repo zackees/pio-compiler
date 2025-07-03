@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from . import tempdir
 from .compiler_stream import CompilerStream
 from .types import Platform, Result
 
@@ -40,7 +40,7 @@ class PioCompilerImpl:
         self._work_dir = (
             Path(work_dir)
             if work_dir is not None
-            else Path(tempfile.mkdtemp(prefix="pio_compiler_"))
+            else tempdir.mkdtemp(prefix="pio_compiler_")
         )
         self._ini_path = self._work_dir / "platformio.ini"
 
