@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from colorama import Fore, Style, init
+
 from . import tempdir
 from .compiler_stream import CompilerStream
 from .types import Platform, Result
@@ -16,7 +18,15 @@ __all__ = [
     "PioCompilerImpl",
 ]
 
+# Initialize colorama for Windows support
+init(autoreset=True)
+
 logger = logging.getLogger(__name__)
+
+# Define color constants for consistent styling
+INFO_PREFIX = f"{Fore.CYAN}[INFO]{Style.RESET_ALL}"
+UNO_PREFIX = f"{Fore.GREEN}[UNO]{Style.RESET_ALL}"
+PATH_COLOR = f"{Fore.YELLOW}"
 
 
 class PioCompilerImpl:
@@ -185,8 +195,12 @@ class PioCompilerImpl:
             # temporary files live.
             # --------------------------------------------------------------
             if self.platform.name == "uno":
-                print(f"[UNO] Project directory: {project_dir}")
-                print(f"[UNO] Source directory:   {src_dir}")
+                print(
+                    f"{UNO_PREFIX} Project directory: {PATH_COLOR}{project_dir}{Style.RESET_ALL}"
+                )
+                print(
+                    f"{UNO_PREFIX} Source directory:   {PATH_COLOR}{src_dir}{Style.RESET_ALL}"
+                )
 
             copied_paths: list[str] = []
 
@@ -370,8 +384,12 @@ class PioCompilerImpl:
             # discoverability for users who only skim the logs.
             build_dir = project_dir / ".pio" / "build" / "uno"
             firmware_elf = build_dir / "firmware.elf"
-            print(f"[UNO] Build directory (will be created by PlatformIO): {build_dir}")
-            print(f"[UNO] Expected firmware artefact:                   {firmware_elf}")
+            print(
+                f"{UNO_PREFIX} Build directory (will be created by PlatformIO): {PATH_COLOR}{build_dir}{Style.RESET_ALL}"
+            )
+            print(
+                f"{UNO_PREFIX} Expected firmware artefact:                   {PATH_COLOR}{firmware_elf}{Style.RESET_ALL}"
+            )
 
         logger.debug("Executing command: %s", cmd)
         # Use default buffering for the subprocess pipe.  Passing *bufsize=1*
@@ -542,7 +560,7 @@ class PioCompilerImpl:
             if len(ino_files) > 1:
                 ino_names = [f.name for f in ino_files]
                 logger.info(
-                    "Found multiple .ino files in %s: %s. Using first one: %s",
+                    f"{INFO_PREFIX} Found multiple .ino files in %s: %s. Using first one: %s",
                     example_path,
                     ino_names,
                     ino_files[0].name,

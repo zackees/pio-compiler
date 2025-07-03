@@ -13,6 +13,7 @@ classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
     "platformio>=6.1.18",
     "disklru>=2.0.4",
+    "colorama>=0.4.6",
 ]
 # Change this with the version number bump.
 version = "0.0.1"
