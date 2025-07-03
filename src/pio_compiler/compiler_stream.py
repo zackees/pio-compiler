@@ -1,6 +1,9 @@
+import logging
 import subprocess
 import threading
 from queue import Empty, Queue
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------
@@ -107,6 +110,10 @@ class CompilerStream:
                 # to deal with *decode* errors.
                 decoded = raw.decode("utf-8", errors="replace")
                 self._queue.put(decoded)
+                # Trace individual output lines at *DEBUG* level to avoid
+                # spamming regular *INFO* logs but still be available for deep
+                # troubleshooting.
+                logger.debug("[compiler-stream] %s", decoded.rstrip())
         finally:
             # Wait for the process to terminate, then mark things as done
             # and close the stdout handle to free resources.

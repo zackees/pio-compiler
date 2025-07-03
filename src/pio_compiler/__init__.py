@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from .compiler_stream import CompilerStream
+from .logging_utils import configure_logging
 from .types import Platform, Result
 
 
@@ -28,4 +29,5 @@ __all__ = [
     "Result",
     "PioCompiler",
     "CompilerStream",
+    "configure_logging",
 ]

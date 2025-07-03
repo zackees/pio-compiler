@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,8 @@ __all__ = [
     "Result",
     "PioCompilerImpl",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class PioCompilerImpl:
@@ -31,6 +34,7 @@ class PioCompilerImpl:
 
     def __init__(self, platform: Platform, work_dir: Optional[Path] = None) -> None:
         self.platform = platform
+        logger.debug("Creating PioCompilerImpl for platform %s", platform.name)
         # Work in a dedicated temporary directory unless the caller wants a
         # persistent *work_dir*.
         self._work_dir = (
@@ -64,6 +68,7 @@ class PioCompilerImpl:
         """
 
         try:
+            logger.debug("Writing platformio.ini to %s", self._ini_path)
             self._ini_path.write_text(
                 self.platform.platformio_ini or "", encoding="utf-8"
             )
@@ -96,7 +101,9 @@ class PioCompilerImpl:
         """
 
         example_path = Path(example).expanduser().resolve()
+        logger.debug("Starting compile for %s", example)
         if not example_path.exists():
+            logger.warning("Example path does not exist: %s", example_path)
             return CompilerStream(
                 popen=None,
                 preloaded_output=f"Example path does not exist: {example_path}",
@@ -110,6 +117,7 @@ class PioCompilerImpl:
         else:
             # Create a dedicated project inside the compiler's work dir.
             project_dir = self._work_dir / example_path.stem
+            logger.debug("Creating isolated project directory %s", project_dir)
             src_dir = project_dir / "src"
             src_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,6 +143,9 @@ class PioCompilerImpl:
                 if self.platform.name == "native":
                     ino_files = list(src_dir.glob("*.ino"))
                     if ino_files:
+                        logger.debug(
+                            "Generating native wrapper for sketch %s", ino_files[0]
+                        )
                         sketch = ino_files[0]
                         wrapper_path = src_dir / "_pio_main.cpp"
                         if not wrapper_path.exists():
@@ -168,6 +179,7 @@ class PioCompilerImpl:
             simulate = True
 
         if simulate:
+            logger.info("Simulation mode active – returning fake CompilerStream")
             # Return a *fake* but plausible looking result.
             return CompilerStream(
                 popen=None, preloaded_output="[simulated] platformio run …"
@@ -177,6 +189,7 @@ class PioCompilerImpl:
         # Real build – invoke ``platformio`` and capture its output.
         # ------------------------------------------------------------------
         cmd = [pio_executable, "run", "-d", str(project_dir)]
+        logger.debug("Executing command: %s", cmd)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,

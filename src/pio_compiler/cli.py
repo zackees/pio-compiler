@@ -13,10 +13,23 @@ argument; in that case the full parser is executed.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from typing import List
 
 from pio_compiler import PioCompiler, Platform
+from pio_compiler.logging_utils import configure_logging
+
+# Configure logging early so that all sub-modules use the same defaults when the
+# CLI is the entry-point.  Users can still override the configuration by
+# calling :pyfunc:`pio_compiler.configure_logging` *before* executing the CLI
+# or by setting the *PIO_COMPILER_LOG_LEVEL* environment variable.
+configure_logging()
+
+# Module-level logger – prefer ``logger`` over bare ``print`` for internal
+# status messages.  The CLI still uses *print* for user-facing output so that
+# scripts expecting *stdout* messages continue to work unchanged.
+logger = logging.getLogger(__name__)
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -52,20 +65,21 @@ def _run_cli(arguments: List[str]) -> int:
     # Create compiler instance for the requested platform.
     # ------------------------------------------------------------------
     platform = Platform(ns.platform)
+    logger.debug("Initialising compiler for platform %s", platform.name)
     compiler = PioCompiler(platform)
 
     init_result = compiler.initialize()
     if not init_result.ok:
-        print(
-            f"[ERROR] Failed to initialise compiler: {init_result.exception or 'unknown error'}"
-        )
+        logger.error("Failed to initialise compiler: %s", init_result.exception)
         return 1
 
     # Compile requested examples
+    logger.debug("Starting compilation for %d example(s)", len(ns.src))
     streams = compiler.multi_compile(ns.src)
 
     exit_code = 0
     for src_path, stream in zip(ns.src, streams):
+        logger.info("[BUILD] %s …", src_path)
         print(f"[BUILD] {src_path} …")
 
         # Consume stream output until completion.
@@ -81,6 +95,7 @@ def _run_cli(arguments: List[str]) -> int:
 
         # Build finished – summarise.
         total_bytes = sum(len(line_) for line_ in accumulated)
+        logger.info("[DONE] %s – captured %d bytes of output", src_path, total_bytes)
         print(f"[DONE] {src_path} – captured {total_bytes} bytes of output\n")
 
     return exit_code
