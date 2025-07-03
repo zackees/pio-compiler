@@ -78,6 +78,38 @@ def _sym(unicode_symbol: str, ascii_fallback: str) -> str:
     return unicode_symbol if _UNICODE_OK else ascii_fallback
 
 
+def _format_path_for_logging(path: Path) -> str:
+    """Format a path for logging according to user preferences.
+
+    - If the path is absolute but under current working directory, convert to relative with forward slashes
+    - If the path is absolute but outside current working directory, keep it as-is (Windows/Unix style preserved)
+    - If the path is already relative, convert to forward slashes
+    """
+    try:
+        # Convert to Path object if it isn't already
+        if not isinstance(path, Path):
+            path = Path(path)
+
+        # Try to make absolute paths relative to current working directory
+        if path.is_absolute():
+            try:
+                cwd = Path.cwd()
+                # If the path is under the current working directory, make it relative
+                relative_path = path.relative_to(cwd)
+                # Convert to string with forward slashes
+                return str(relative_path).replace("\\", "/")
+            except ValueError:
+                # Path is not under current working directory, keep it as absolute
+                return str(path)
+        else:
+            # Already relative, just convert to forward slashes
+            return str(path).replace("\\", "/")
+
+    except Exception:
+        # Fallback to string representation if anything goes wrong
+        return str(path)
+
+
 LIGHTNING = _sym("⚡", "*")
 ROCKET = _sym("🚀", "-")
 PACKAGE = _sym("📦", "#")
@@ -101,7 +133,10 @@ def _print_startup_banner(
     if fast_mode and fast_dir is not None:
         status_colour = _GREEN if fast_hit else _YELLOW
         status = "hit" if fast_hit else "miss"
-        print(f"  {status_colour}{ROCKET} Fast cache [{status}]: {fast_dir}{_RESET}")
+        formatted_fast_dir = _format_path_for_logging(fast_dir)
+        print(
+            f"  {status_colour}{ROCKET} Fast cache [{status}]: {formatted_fast_dir}{_RESET}"
+        )
     elif clean:
         print(f"  {_MAGENTA}{HAMMER} Full clean build – no incremental cache{_RESET}")
 
@@ -110,12 +145,14 @@ def _print_startup_banner(
         # Yellow for clean build, Green for incremental build
         cache_colour = _YELLOW if clean else _GREEN
         cache_status = "clean build" if clean else "incremental"
+        formatted_pio_cache_dir = _format_path_for_logging(Path(pio_cache_dir))
         print(
-            f"  {cache_colour}{PACKAGE} PIO cache [{cache_status}]: {pio_cache_dir}{_RESET}"
+            f"  {cache_colour}{PACKAGE} PIO cache [{cache_status}]: {formatted_pio_cache_dir}{_RESET}"
         )
 
     if cache_dir is not None:
-        print(f"  {_CYAN}{PACKAGE} Global PIO cache: {cache_dir}{_RESET}")
+        formatted_cache_dir = _format_path_for_logging(Path(cache_dir))
+        print(f"  {_CYAN}{PACKAGE} Global PIO cache: {formatted_cache_dir}{_RESET}")
 
     # Trailing newline for separation before build output.
     print()
@@ -152,27 +189,17 @@ def _print_info_reports(
 
     # Show optimization report
     if opt_report_path:
-        relative_path = (
-            opt_report_path.relative_to(Path.cwd())
-            if opt_report_path.is_absolute()
-            and opt_report_path.is_relative_to(Path.cwd())
-            else opt_report_path
-        )
+        formatted_path = _format_path_for_logging(opt_report_path)
         print(
-            f"  {_GREEN}[x]{_RESET} Optimization report: {_YELLOW}{relative_path}{_RESET}"
+            f"  {_GREEN}[x]{_RESET} Optimization report: {_YELLOW}{formatted_path}{_RESET}"
         )
     else:
         print(f"  {_YELLOW}[ ]{_RESET} Optimization report: generation failed")
 
     # Show build info
     if build_info_path:
-        relative_path = (
-            build_info_path.relative_to(Path.cwd())
-            if build_info_path.is_absolute()
-            and build_info_path.is_relative_to(Path.cwd())
-            else build_info_path
-        )
-        print(f"  {_GREEN}[x]{_RESET} build_info: {_YELLOW}{relative_path}{_RESET}")
+        formatted_path = _format_path_for_logging(build_info_path)
+        print(f"  {_GREEN}[x]{_RESET} build_info: {_YELLOW}{formatted_path}{_RESET}")
     else:
         print(f"  {_YELLOW}[ ]{_RESET} build_info: generation failed")
 
@@ -549,13 +576,15 @@ def _run_cli(arguments: List[str]) -> int:
             try:
                 stream = future.result()
             except Exception as exc:  # pragma: no cover – treat failures gracefully
-                logger.error("Compilation failed for %s: %s", src_path, exc)
-                print(f"[ERROR] {src_path} – {exc}")
+                formatted_path = _format_path_for_logging(src_path)
+                logger.error("Compilation failed for %s: %s", formatted_path, exc)
+                print(f"[ERROR] {formatted_path} – {exc}")
                 exit_code = 1
                 continue
 
-            logger.info("[BUILD] %s …", src_path)
-            print(f"[BUILD] {src_path} …")
+            formatted_path = _format_path_for_logging(src_path)
+            logger.info("[BUILD] %s …", formatted_path)
+            print(f"[BUILD] {formatted_path} …")
 
             # Consume stream output until completion.
             accumulated: list[str] = []
@@ -578,9 +607,9 @@ def _run_cli(arguments: List[str]) -> int:
             # Build finished – summarise.
             total_bytes = sum(len(line_) for line_ in accumulated)
             logger.info(
-                "[DONE] %s – captured %d bytes of output", src_path, total_bytes
+                "[DONE] %s – captured %d bytes of output", formatted_path, total_bytes
             )
-            print(f"[DONE] {src_path} – captured {total_bytes} bytes of output\n")
+            print(f"[DONE] {formatted_path} – captured {total_bytes} bytes of output\n")
 
             # --------------------------------------------------------------
             # Determine build success – propagate non-zero *exit codes* from
@@ -603,9 +632,9 @@ def _run_cli(arguments: List[str]) -> int:
             elif proc_rc != 0:
                 # Underlying *platformio run* command failed – propagate.
                 logger.error(
-                    "[FAILED] %s – platformio exited with %d", src_path, proc_rc
+                    "[FAILED] %s – platformio exited with %d", formatted_path, proc_rc
                 )
-                print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
+                print(f"[FAILED] {formatted_path} – platformio exited with {proc_rc}\n")
                 exit_code = 1
             else:
                 # Build succeeded – cleanup old cache entries if needed.
