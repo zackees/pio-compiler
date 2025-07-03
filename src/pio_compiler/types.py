@@ -78,7 +78,35 @@ build_flags =
     -std=c++17
 """
 
-    # Fallback – leave it to the user; PlatformIO will error out if the
-    # supplied configuration is invalid.  Keeping the string minimal avoids
-    # introducing arbitrary default choices.
+    # ------------------------------------------------------------------
+    # Common *board* aliases – map frequently used board IDs directly to a
+    # working PlatformIO configuration so that users can compile sketches
+    # with the intuitive command‐line form::
+    #
+    #     pio-compile examples/Blink --uno
+    #
+    # without having to hand‐craft a custom *platformio.ini* file.  The
+    # mapping is intentionally *minimalist* and only covers targets that are
+    # surfaced directly via the CLI (e.g. *uno*).  Power users can always
+    # override the automatically generated configuration by supplying their
+    # own :pyattr:`Platform.platformio_ini` string.
+    # ------------------------------------------------------------------
+
+    board_aliases = {
+        # Classic 8-bit AVR boards ---------------------------------------
+        "uno": {
+            "platform": "atmelavr",
+            "board": "uno",
+            "framework": "arduino",
+        },
+        # Additional aliases can be added here as the need arises.
+    }
+
+    if platform_name in board_aliases:
+        env = board_aliases[platform_name]
+        ini_lines = ["[platformio]", "src_dir = src", "", f"[env:{platform_name}]"]
+        ini_lines.extend(f"{key} = {value}" for key, value in env.items())
+        # Ensure file ends with newline for prettiness.
+        return "\n".join(ini_lines) + "\n"
+
     return f"[env:{platform_name}]\nplatform = {platform_name}\n"
