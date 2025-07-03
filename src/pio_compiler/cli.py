@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import shutil
 import sys
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
@@ -357,18 +356,18 @@ def _run_cli(arguments: List[str]) -> int:
         # )
 
     # ------------------------------------------------------------------
-    # *Fast* mode – compute fingerprinted work directory and configure
-    # incremental build behaviour.
+    # *Fast* mode – use cache manager for human-readable cache directories
     # ------------------------------------------------------------------
 
-    # Prepare fast-cache root once.
-    fast_root: Path | None = None
+    # Initialize cache manager once
+    cache_manager = None
     if fast_mode:
-        fast_root = Path.cwd() / ".tpo_fast_cache"
-        fast_root.mkdir(exist_ok=True)
+        from .cache_manager import CacheManager
 
-    # Placeholder for per-platform fast directory (helps static analysis).
-    fast_dir: Path | None = None
+        cache_manager = CacheManager()
+
+        # Migrate any old hash-based cache directories to new format
+        cache_manager.migrate_old_cache_entries()
 
     compilers: list[tuple[str, PioCompiler]] = []
 
@@ -401,16 +400,13 @@ def _run_cli(arguments: List[str]) -> int:
         fast_dir: Path | None = None
         fast_hit: bool | None = None
 
-        if fast_mode:
-            import hashlib
-
+        if fast_mode and cache_manager:
             src_path = Path(src_list[0]).expanduser().resolve()
-            hash_input = f"{src_path}:{plat_name}".encode()
-            fingerprint = hashlib.sha256(hash_input).hexdigest()[:12]
+            cache_entry = cache_manager.get_cache_entry(src_path, plat_name)
 
-            fast_dir = fast_root / fingerprint  # type: ignore[arg-type]
+            fast_dir = cache_entry.cache_dir
+            fast_hit = cache_entry.exists
 
-            fast_hit = fast_dir.exists()
             if fast_hit:
                 print(f"[FAST] Using cache directory: {fast_dir}")
             else:
@@ -536,32 +532,15 @@ def _run_cli(arguments: List[str]) -> int:
                 print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
                 exit_code = 1
             else:
-                # Build succeeded – update per-platform fast-cache index.
-                if fast_mode and fast_root is not None and fast_dir is not None:
+                # Build succeeded – cleanup old cache entries if needed.
+                if fast_mode and cache_manager is not None:
                     try:
-                        from disklru import DiskLRUCache
-
-                        index_path = fast_root / "build_index.db"
-                        lru = DiskLRUCache(str(index_path), max_entries=10)
-
-                        lru.put(fast_dir.name, str(fast_dir))
-
-                        try:
-                            # Prefer public API if library adds it later
-                            valid_keys = set(lru.keys())  # type: ignore[attr-defined]
-                        except AttributeError:
-                            # Fall back to direct DB query (disklru 2.0.x does not expose keys())
-                            conn, cursor = lru._get_session()  # type: ignore[attr-defined]
-                            cursor.execute("SELECT key FROM cache")
-                            valid_keys = {row[0] for row in cursor.fetchall()}
-
-                        for dir_entry in fast_root.iterdir():
-                            if not dir_entry.is_dir():
-                                continue
-                            if dir_entry.name not in valid_keys:
-                                shutil.rmtree(dir_entry, ignore_errors=True)
+                        # Clean up old cache entries to keep the cache manageable
+                        cache_manager.cleanup_old_entries(
+                            max_entries=10, max_age_days=30
+                        )
                     except Exception as exc:  # pragma: no cover – best-effort
-                        logger.warning("Failed to update fast-cache index: %s", exc)
+                        logger.warning("Failed to cleanup cache entries: %s", exc)
 
     return exit_code
 

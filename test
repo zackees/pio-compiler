@@ -10,5 +10,5 @@ if [[ "$1" == "--full" ]]; then
 else
   echo "Running unit tests with uv"
   # Only run the fast unit tests (<5 s) by default
-  uv run pytest -n auto tests/unit -v --durations=0
+  uv run pytest -n 4 tests/unit -v --durations=0
 fi
