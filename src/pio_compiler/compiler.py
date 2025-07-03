@@ -102,11 +102,14 @@ class PioCompilerImpl:
 
         example_path = Path(example).expanduser().resolve()
         logger.debug("Starting compile for %s", example)
-        if not example_path.exists():
-            logger.warning("Example path does not exist: %s", example_path)
+
+        # Validate the input path and provide helpful error messages
+        validation_error = self._validate_example_path(example_path)
+        if validation_error:
+            logger.warning(validation_error)
             return CompilerStream(
                 popen=None,
-                preloaded_output=f"Example path does not exist: {example_path}",
+                preloaded_output=validation_error,
             )
 
         # ------------------------------------------------------------------
@@ -287,3 +290,76 @@ class PioCompilerImpl:
         import os
 
         return os.environ.get(key, default)
+
+    def _validate_example_path(self, example_path: Path) -> str | None:
+        """Validate that the example path is suitable for compilation.
+
+        Returns None if valid, or an error message string if invalid.
+        Provides helpful guidance on what the caller should provide.
+        """
+        if not example_path.exists():
+            return (
+                f"Example path does not exist: {example_path}\n"
+                f"Expected: Either a directory containing .ino files, or a single .ino file.\n"
+                f"Example usage:\n"
+                f"  - Point to a directory: /path/to/MyProject/ (containing MyProject.ino)\n"
+                f"  - Point to a single file: /path/to/MyProject/MyProject.ino"
+            )
+
+        if example_path.is_file():
+            if example_path.suffix.lower() != ".ino":
+                return (
+                    f"Expected an Arduino sketch (.ino) file, but got: {example_path}\n"
+                    f"File extension: {example_path.suffix}\n"
+                    f"Arduino sketches must have a .ino extension.\n"
+                    f"Example: MyProject.ino"
+                )
+            # Single .ino file is valid
+            return None
+
+        if example_path.is_dir():
+            # Check if it's already a PlatformIO project
+            if (example_path / "platformio.ini").exists():
+                # Existing PlatformIO project is always valid
+                return None
+
+            # For regular directories, we expect .ino files
+            ino_files = list(example_path.glob("*.ino"))
+
+            if not ino_files:
+                dir_contents = list(example_path.iterdir())
+                content_summary = f"Found {len(dir_contents)} files/directories"
+                if dir_contents:
+                    sample_files = [f.name for f in dir_contents[:3]]
+                    if len(dir_contents) > 3:
+                        sample_files.append("...")
+                    content_summary += f": {', '.join(sample_files)}"
+
+                return (
+                    f"No Arduino sketch (.ino) files found in directory: {example_path}\n"
+                    f"{content_summary}\n"
+                    f"Expected: A directory containing at least one .ino file, such as:\n"
+                    f"  {example_path}/MyProject.ino\n"
+                    f"Or provide a path to an existing PlatformIO project with platformio.ini"
+                )
+
+            if len(ino_files) > 1:
+                ino_names = [f.name for f in ino_files]
+                logger.info(
+                    "Found multiple .ino files in %s: %s. Using first one: %s",
+                    example_path,
+                    ino_names,
+                    ino_files[0].name,
+                )
+
+            # Directory with .ino files is valid
+            return None
+
+        # Not a file or directory (shouldn't happen, but handle gracefully)
+        return (
+            f"Invalid path type: {example_path}\n"
+            f"Expected either a file or directory, but got something else.\n"
+            f"Please provide either:\n"
+            f"  - A directory containing .ino files\n"
+            f"  - A single .ino file"
+        )
