@@ -16,9 +16,9 @@ import argparse
 import sys
 from typing import List
 
-from .compiler import (  # noqa: F401 – imported for type completeness
+from pio_compiler import (  # noqa: F401 – imported for type completeness
     CompilerStream,
-    PioCompilerImpl,
+    PioCompiler,
     Platform,
 )
 
@@ -56,7 +56,7 @@ def _run_cli(arguments: List[str]) -> int:
     # Create compiler instance for the requested platform.
     # ------------------------------------------------------------------
     platform = Platform(ns.platform)
-    compiler = PioCompilerImpl(platform)
+    compiler = PioCompiler(platform)
 
     init_result = compiler.initialize()
     if not init_result.ok:
