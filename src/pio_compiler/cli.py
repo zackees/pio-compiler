@@ -188,6 +188,11 @@ def _print_info_reports(
         project_dir, src_path, build_start_time, report_dir
     )
 
+    # Generate symbols report
+    symbols_report_path = compiler.generate_symbols_report(
+        project_dir, src_path, report_dir
+    )
+
     # Save platformio.ini as platformio.ini.tpo when --report is specified
     platformio_ini_path = None
     if report_dir is not None:
@@ -222,6 +227,15 @@ def _print_info_reports(
         print(f"  {_GREEN}[x]{_RESET} build_info: {_YELLOW}{formatted_path}{_RESET}")
     else:
         print(f"  {_YELLOW}[ ]{_RESET} build_info: generation failed")
+
+    # Show symbols report
+    if symbols_report_path:
+        formatted_path = _format_path_for_logging(symbols_report_path)
+        print(
+            f"  {_GREEN}[x]{_RESET} symbols_report: {_YELLOW}{formatted_path}{_RESET}"
+        )
+    else:
+        print(f"  {_YELLOW}[ ]{_RESET} symbols_report: generation failed")
 
     # Show platformio.ini.tpo
     if platformio_ini_path:

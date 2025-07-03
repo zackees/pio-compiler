@@ -116,6 +116,14 @@ class PioCompiler:
             project_dir, example_path, build_start_time, output_dir
         )
 
+    def generate_symbols_report(
+        self, project_dir: Path, example_path: Path, output_dir: Path | None = None
+    ) -> Path | None:
+        """Generate symbols analysis report and return the path to the report file."""
+        return self.__impl.generate_symbols_report(
+            project_dir, example_path, output_dir
+        )
+
     @property
     def fast_mode(self) -> bool:
         """Return True if fast mode is enabled."""

@@ -376,6 +376,336 @@ class PioCompilerImpl:
             logger.warning(f"Failed to generate build_info.json: {e}")
             return None
 
+    def generate_symbols_report(
+        self, project_dir: Path, example_path: Path, output_dir: Path | None = None
+    ) -> Path | None:
+        """Generate symbols analysis report using nm and objdump tools.
+
+        This method analyzes the compiled ELF file to extract symbol size information,
+        helping identify large symbols for optimization purposes.
+
+        Args:
+            project_dir: The PlatformIO project directory
+            example_path: The source example path
+            output_dir: Optional directory where to save the report. If None, saves to project_dir
+
+        Returns:
+            Path to the symbols_report.txt file or None if generation failed
+        """
+        try:
+            # Use custom output directory if provided, otherwise use project directory
+            report_base_dir = output_dir if output_dir is not None else project_dir
+            symbols_report_path = report_base_dir / "symbols_report.txt"
+
+            # Find the compiled binary file (search in all build subdirectories)
+            build_root = project_dir / ".pio" / "build"
+
+            # Search for binaries in all build subdirectories
+            firmware_binary = None
+            binary_patterns = ["*.elf", "*.exe", "program*", "firmware*"]
+
+            if build_root.exists():
+                for pattern in binary_patterns:
+                    # Search recursively for binary files
+                    for candidate in build_root.rglob(pattern):
+                        if candidate.is_file() and candidate.stat().st_size > 0:
+                            # Prefer .elf files over .exe files
+                            if firmware_binary is None or candidate.suffix == ".elf":
+                                firmware_binary = candidate
+                                if candidate.suffix == ".elf":
+                                    break  # Found ELF, stop searching
+
+            if firmware_binary is None:
+                logger.warning(f"No binary file found in {build_root}")
+                logger.debug(f"Searched patterns: {binary_patterns}")
+                return None
+
+            report_content = []
+            report_content.append("=" * 80)
+            report_content.append(f"SYMBOLS ANALYSIS REPORT for {example_path.name}")
+            report_content.append(f"Platform: {self.platform.name}")
+            report_content.append(f"Generated: {datetime.now().isoformat()}")
+            report_content.append(f"Binary File: {firmware_binary}")
+            report_content.append("=" * 80)
+            report_content.append("")
+
+            # Try to find appropriate tools for symbol analysis
+            nm_tools = ["arm-none-eabi-nm", "nm", "avr-nm"]
+            objdump_tools = ["arm-none-eabi-objdump", "objdump", "avr-objdump"]
+            size_tools = ["arm-none-eabi-size", "size", "avr-size"]
+
+            nm_cmd = None
+            objdump_cmd = None
+            size_cmd = None
+
+            for tool in nm_tools:
+                if shutil.which(tool):
+                    nm_cmd = tool
+                    break
+
+            for tool in objdump_tools:
+                if shutil.which(tool):
+                    objdump_cmd = tool
+                    break
+
+            for tool in size_tools:
+                if shutil.which(tool):
+                    size_cmd = tool
+                    break
+
+            # 1. Overall size analysis
+            if size_cmd:
+                report_content.append("1. OVERALL MEMORY USAGE")
+                report_content.append("-" * 40)
+                try:
+                    size_result = subprocess.run(
+                        [size_cmd, "-A", str(firmware_binary)],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    if size_result.returncode == 0:
+                        report_content.append(size_result.stdout)
+                    else:
+                        report_content.append(
+                            f"Size analysis failed: {size_result.stderr}"
+                        )
+                except subprocess.SubprocessError as e:
+                    report_content.append(f"Size analysis error: {e}")
+                report_content.append("")
+
+                # Also get traditional size output
+                try:
+                    size_result = subprocess.run(
+                        [size_cmd, str(firmware_binary)],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    if size_result.returncode == 0:
+                        report_content.append("Traditional size output:")
+                        report_content.append(size_result.stdout)
+                except subprocess.SubprocessError:
+                    pass
+                report_content.append("")
+
+            # 2. Symbol size analysis using nm
+            symbols = []  # Initialize symbols list early
+            if nm_cmd:
+                report_content.append("2. SYMBOL SIZE ANALYSIS (Largest Symbols)")
+                report_content.append("-" * 40)
+                try:
+                    # Get all symbols with sizes, sorted by size (descending)
+                    nm_result = subprocess.run(
+                        [nm_cmd, "-S", "-s", str(firmware_binary)],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+
+                    if nm_result.returncode == 0:
+                        # Parse nm output and sort by size
+                        for line in nm_result.stdout.strip().split("\n"):
+                            if not line.strip():
+                                continue
+
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                try:
+                                    # Format: address size type name
+                                    address = parts[0]
+                                    size_hex = parts[1]
+                                    symbol_type = parts[2]
+                                    symbol_name = " ".join(parts[3:])
+
+                                    # Convert hex size to decimal
+                                    size_bytes = (
+                                        int(size_hex, 16) if size_hex != "0" else 0
+                                    )
+
+                                    if size_bytes > 0:  # Only include symbols with size
+                                        symbols.append(
+                                            (
+                                                size_bytes,
+                                                symbol_name,
+                                                symbol_type,
+                                                address,
+                                            )
+                                        )
+                                except (ValueError, IndexError):
+                                    continue
+
+                        # Sort by size (descending) and show top 50
+                        symbols.sort(reverse=True, key=lambda x: x[0])
+
+                        report_content.append(
+                            f"Top 50 largest symbols (out of {len(symbols)} total):"
+                        )
+                        report_content.append("")
+                        report_content.append(
+                            f"{'Size (bytes)':<12} {'Type':<4} {'Symbol Name':<50} {'Address'}"
+                        )
+                        report_content.append("-" * 100)
+
+                        for i, (size_bytes, name, sym_type, addr) in enumerate(
+                            symbols[:50]
+                        ):
+                            # Truncate very long symbol names
+                            display_name = (
+                                name if len(name) <= 50 else name[:47] + "..."
+                            )
+                            report_content.append(
+                                f"{size_bytes:<12} {sym_type:<4} {display_name:<50} {addr}"
+                            )
+
+                        # Show FastLED-related symbols separately if detected
+                        fastled_symbols = [
+                            s
+                            for s in symbols
+                            if "fastled" in s[1].lower() or "led" in s[1].lower()
+                        ]
+                        if fastled_symbols:
+                            report_content.append("")
+                            report_content.append("FastLED-related symbols:")
+                            report_content.append("-" * 40)
+                            for size_bytes, name, sym_type, addr in fastled_symbols[
+                                :20
+                            ]:
+                                display_name = (
+                                    name if len(name) <= 50 else name[:47] + "..."
+                                )
+                                report_content.append(
+                                    f"{size_bytes:<12} {sym_type:<4} {display_name}"
+                                )
+
+                    else:
+                        report_content.append(f"nm analysis failed: {nm_result.stderr}")
+
+                except subprocess.SubprocessError as e:
+                    report_content.append(f"nm analysis error: {e}")
+
+                report_content.append("")
+
+            # 3. Section analysis using objdump
+            if objdump_cmd:
+                report_content.append("3. SECTION ANALYSIS")
+                report_content.append("-" * 40)
+                try:
+                    # Get section headers
+                    objdump_result = subprocess.run(
+                        [objdump_cmd, "-h", str(firmware_binary)],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+
+                    if objdump_result.returncode == 0:
+                        report_content.append("Section headers:")
+                        report_content.append(objdump_result.stdout)
+                    else:
+                        report_content.append(
+                            f"objdump section analysis failed: {objdump_result.stderr}"
+                        )
+
+                except subprocess.SubprocessError as e:
+                    report_content.append(f"objdump analysis error: {e}")
+
+                report_content.append("")
+
+            # 4. Object file analysis (if available)
+            obj_files = list(build_root.glob("**/*.o"))
+            if obj_files and nm_cmd:
+                report_content.append("4. OBJECT FILE SIZE CONTRIBUTION")
+                report_content.append("-" * 40)
+
+                obj_sizes = []
+                for obj_file in obj_files[
+                    :20
+                ]:  # Limit to first 20 to avoid huge output
+                    try:
+                        nm_obj_result = subprocess.run(
+                            [nm_cmd, "-S", str(obj_file)],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+
+                        if nm_obj_result.returncode == 0:
+                            total_size = 0
+                            for line in nm_obj_result.stdout.strip().split("\n"):
+                                parts = line.split()
+                                if len(parts) >= 4:
+                                    try:
+                                        size_hex = parts[1]
+                                        size_bytes = (
+                                            int(size_hex, 16) if size_hex != "0" else 0
+                                        )
+                                        total_size += size_bytes
+                                    except (ValueError, IndexError):
+                                        continue
+
+                            if total_size > 0:
+                                obj_sizes.append((total_size, obj_file.name))
+
+                    except subprocess.SubprocessError:
+                        continue
+
+                # Sort by size and display
+                obj_sizes.sort(reverse=True, key=lambda x: x[0])
+                report_content.append(
+                    f"Object files by symbol size contribution (top {min(len(obj_sizes), 20)}):"
+                )
+                report_content.append("")
+                for size_bytes, filename in obj_sizes[:20]:
+                    report_content.append(f"{size_bytes:<12} bytes - {filename}")
+
+                report_content.append("")
+
+            # 5. Summary and recommendations
+            report_content.append("5. OPTIMIZATION RECOMMENDATIONS")
+            report_content.append("-" * 40)
+
+            if nm_cmd and symbols:
+                # Analyze largest symbols for recommendations
+                large_symbols = [
+                    s for s in symbols if s[0] > 1000
+                ]  # Symbols larger than 1KB
+
+                report_content.append(
+                    "Symbols larger than 1KB that could be optimization targets:"
+                )
+                for size_bytes, name, sym_type, addr in large_symbols[:10]:
+                    report_content.append(f"  {size_bytes:>6} bytes: {name[:60]}")
+
+                report_content.append("")
+                report_content.append("General optimization suggestions:")
+                report_content.append(
+                    "- Consider using compiler optimization flags (-Os for size)"
+                )
+                report_content.append("- Look for unused code that can be removed")
+                report_content.append(
+                    "- Consider replacing large libraries with smaller alternatives"
+                )
+                report_content.append("- Use PROGMEM for constants on AVR platforms")
+                report_content.append(
+                    "- Enable link-time optimization (LTO) if available"
+                )
+
+            if not nm_cmd and not objdump_cmd and not size_cmd:
+                report_content.append("No symbol analysis tools found.")
+                report_content.append(
+                    "Install appropriate toolchain (e.g., arm-none-eabi-gcc, avr-gcc) for detailed analysis."
+                )
+
+            # Write report to file
+            symbols_report_path.write_text("\n".join(report_content), encoding="utf-8")
+            logger.debug(f"Symbols report written to: {symbols_report_path}")
+            return symbols_report_path
+
+        except Exception as e:
+            logger.warning(f"Failed to generate symbols report: {e}")
+            return None
+
     # --------------------------------------------------------------
     # *compile* – build a single example.
     # --------------------------------------------------------------

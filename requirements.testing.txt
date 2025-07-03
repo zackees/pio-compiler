@@ -1,6 +1,0 @@
-black
-isort
-pytest
-ruff
-pyright
-pytest-xdist
