@@ -5,8 +5,10 @@ from pathlib import Path
 
 from pio_compiler import tempdir
 
+from . import TimedTestCase
 
-class CacheDirectoryTest(unittest.TestCase):
+
+class CacheDirectoryTest(TimedTestCase):
     """Test that cache directories are persistent and behave correctly."""
 
     def setUp(self) -> None:

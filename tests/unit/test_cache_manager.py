@@ -7,8 +7,10 @@ from pathlib import Path
 
 from pio_compiler.cache_manager import CacheManager, InvalidCacheNameError
 
+from . import TimedTestCase
 
-class CacheManagerTest(unittest.TestCase):
+
+class CacheManagerTest(TimedTestCase):
     """Test the cache manager functionality."""
 
     def setUp(self) -> None:

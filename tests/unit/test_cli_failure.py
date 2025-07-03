@@ -2,8 +2,10 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from . import TimedTestCase
 
-class CliFailureTest(unittest.TestCase):
+
+class CliFailureTest(TimedTestCase):
     """Ensure that the CLI returns **non-zero** when the build fails."""
 
     EXAMPLE_REL_PATH = Path("tests/test_data/examples/Blink")
