@@ -78,7 +78,17 @@ def _run_cli(arguments: List[str]) -> int:
     streams = compiler.multi_compile(ns.src)
 
     exit_code = 0
-    for src_path, stream in zip(ns.src, streams):
+    for src_path, future in zip(ns.src, streams):
+        # Resolve the compilation *Future* – this yields the actual
+        # :class:`CompilerStream` instance.
+        try:
+            stream = future.result()
+        except Exception as exc:  # pragma: no cover – treat failures gracefully
+            logger.error("Compilation failed for %s: %s", src_path, exc)
+            print(f"[ERROR] {src_path} – {exc}")
+            exit_code = 1
+            continue
+
         logger.info("[BUILD] %s …", src_path)
         print(f"[BUILD] {src_path} …")
 
