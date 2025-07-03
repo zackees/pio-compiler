@@ -106,72 +106,64 @@ void randomSeed(unsigned long seed) {
 
 } // extern "C"
 
-// Serial instances for Arduino compatibility
-class HardwareSerial {
-public:
-    void begin(unsigned long baud) {
-        // No-op for native platform, just print to indicate it's working
-        printf("Serial.begin(%lu) - Native platform\n", baud);
-    }
-    
-    void end() {}
-    int available() { return 0; }
-    int read() { return -1; }
-    int peek() { return -1; }
-    void flush() {}
-    
-    size_t write(uint8_t byte) {
-        putchar(byte);
-        return 1;
-    }
-    
-    size_t write(const char *str) {
-        if (str) printf("%s", str);
-        return str ? strlen(str) : 0;
-    }
-    
-    size_t write(const uint8_t *buffer, size_t size) {
-        if (buffer) {
-            for (size_t i = 0; i < size; i++) {
-                putchar(buffer[i]);
-            }
-        }
-        return size;
-    }
-    
-    void print(const char str[]) { if (str) printf("%s", str); }
-    void print(char c) { putchar(c); }
-    void print(int n, int base = 10) { 
-        if (base == 16) printf("%x", n);
-        else printf("%d", n);
-    }
-    void print(unsigned int n, int base = 10) { 
-        if (base == 16) printf("%x", n);
-        else printf("%u", n);
-    }
-    void print(long n, int base = 10) { 
-        if (base == 16) printf("%lx", n);
-        else printf("%ld", n);
-    }
-    void print(unsigned long n, int base = 10) { 
-        if (base == 16) printf("%lx", n);
-        else printf("%lu", n);
-    }
-    void print(double n, int digits = 2) { printf("%.*f", digits, n); }
-    
-    void println(const char str[]) { print(str); putchar('\n'); }
-    void println(char c) { print(c); putchar('\n'); }
-    void println(int n, int base = 10) { print(n, base); putchar('\n'); }
-    void println(unsigned int n, int base = 10) { print(n, base); putchar('\n'); }
-    void println(long n, int base = 10) { print(n, base); putchar('\n'); }
-    void println(unsigned long n, int base = 10) { print(n, base); putchar('\n'); }
-    void println(double n, int digits = 2) { print(n, digits); putchar('\n'); }
-    void println(void) { putchar('\n'); }
-    
-    operator bool() { return true; }
-};
+// FastLED native-platform Serial stub
+// Provides global Serial and Serial1 objects expected by MIDI library when compiling with FastLED's host stub.
+// All functions are lightweight no-ops – sufficient for successful linking.
 
-// Global Serial instances
+// -----------------------------------------------------------------------------
+// Inline helper – write C-string to stdout (used by print/println variants)
+// -----------------------------------------------------------------------------
+static inline void _serial_write_str(const char *s) {
+    if (s != nullptr) std::fputs(s, stdout);
+}
+
+// -----------------------------------------------------------------------------
+// HardwareSerial method implementations – extremely lightweight.
+// -----------------------------------------------------------------------------
+void HardwareSerial::begin(unsigned long baud) { (void)baud; /* no-op */ }
+void HardwareSerial::end() {}
+int  HardwareSerial::available() { return 0; }
+int  HardwareSerial::read() { return -1; }
+int  HardwareSerial::peek() { return -1; }
+void HardwareSerial::flush() { std::fflush(stdout); }
+
+size_t HardwareSerial::write(uint8_t b) {
+    std::fputc(static_cast<int>(b), stdout);
+    return 1;
+}
+
+size_t HardwareSerial::write(const char *str) {
+    _serial_write_str(str);
+    return str ? std::strlen(str) : 0;
+}
+
+size_t HardwareSerial::write(const uint8_t *buf, size_t n) {
+    if (buf != nullptr) for (size_t i = 0; i < n; ++i) std::fputc(buf[i], stdout);
+    return n;
+}
+
+#define SERIAL_IMPL_PRINT(type)                                                        \
+    void HardwareSerial::print(type v, int base) {                                    \
+        if (base == 16) std::printf("%x", static_cast<unsigned int>(v));            \
+        else            std::printf("%d", static_cast<int>(v));                     \
+    }                                                                                 \
+    void HardwareSerial::println(type v, int base) { print(v, base); std::fputc('\n', stdout); }
+
+SERIAL_IMPL_PRINT(char)
+SERIAL_IMPL_PRINT(int)
+SERIAL_IMPL_PRINT(unsigned int)
+SERIAL_IMPL_PRINT(long)
+SERIAL_IMPL_PRINT(unsigned long)
+
+void HardwareSerial::print(const char str[])   { _serial_write_str(str); }
+void HardwareSerial::println(const char str[]) { _serial_write_str(str); std::fputc('\n', stdout);} 
+void HardwareSerial::print(double d, int digits)   { std::printf("%.*f", digits, d); }
+void HardwareSerial::println(double d, int digits) { print(d, digits); std::fputc('\n', stdout);} 
+void HardwareSerial::println() { std::fputc('\n', stdout);}                                    
+
+// -----------------------------------------------------------------------------
+// Global Serial objects
+// -----------------------------------------------------------------------------
 HardwareSerial Serial;
 HardwareSerial Serial1;
 
