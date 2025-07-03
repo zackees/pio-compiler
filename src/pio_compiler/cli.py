@@ -351,51 +351,14 @@ def _run_cli(arguments: List[str]) -> int:
     # incremental build behaviour.
     # ------------------------------------------------------------------
 
-    # *Optional* values filled only when --fast is active.  Pre-declare so that
-    # static type checkers do not report "possibly unbound" accesses later.
+    # Prepare fast-cache root once.
     fast_root: Path | None = None
-    fast_dir: Path | None = None
-    fingerprint: str | None = None
-    fast_hit: bool | None = None
-
     if fast_mode:
-        if len(src_list) != 1 or len(platforms_list) != 1:
-            logger.error(
-                "--fast mode supports exactly one platform and one sketch path."
-            )
-            return 1
-
-        import hashlib
-
-        src_path = Path(src_list[0]).expanduser().resolve()
-        hash_input = f"{src_path}:{platforms_list[0]}".encode()
-        fingerprint = hashlib.sha256(hash_input).hexdigest()[:12]
-
         fast_root = Path.cwd() / ".tpo_fast_cache"
         fast_root.mkdir(exist_ok=True)
-        fast_dir = fast_root / fingerprint
 
-        fast_hit = fast_dir.exists()
-        if fast_hit:
-            # Cache already exists – single concise line.
-            print(f"[FAST] Using cache directory: {fast_dir}")
-        else:
-            # Cold start – inform user without duplicating the full path.
-            print("[FAST] Cache miss – creating cache directory…")
-            fast_dir.mkdir(parents=True, exist_ok=True)
-            print(f"[FAST] Using cache directory: {fast_dir}")
-
-    # ------------------------------------------------------------------
-    # Print slick startup banner summarising the chosen configuration.
-    # ------------------------------------------------------------------
-
-    _print_startup_banner(
-        fast_mode=fast_mode,
-        fast_dir=fast_dir,
-        fast_hit=fast_hit,
-        cache_dir=ns.cache,
-        rebuild=not fast_mode,
-    )
+    # Placeholder for per-platform fast directory (helps static analysis).
+    fast_dir: Path | None = None
 
     compilers: list[tuple[str, PioCompiler]] = []
 
@@ -423,6 +386,44 @@ def _run_cli(arguments: List[str]) -> int:
                 return base_ini
 
             plat_obj.platformio_ini = _inject_cache(plat_obj.platformio_ini)
+
+        # ---------------- fast-cache per platform ----------------
+        fast_dir: Path | None = None
+        fast_hit: bool | None = None
+
+        if fast_mode:
+            import hashlib
+
+            src_path = Path(src_list[0]).expanduser().resolve()
+            hash_input = f"{src_path}:{plat_name}".encode()
+            fingerprint = hashlib.sha256(hash_input).hexdigest()[:12]
+
+            fast_dir = fast_root / fingerprint  # type: ignore[arg-type]
+
+            fast_hit = fast_dir.exists()
+            if fast_hit:
+                print(f"[FAST] Using cache directory: {fast_dir}")
+            else:
+                print("[FAST] Cache miss – creating cache directory…")
+                fast_dir.mkdir(parents=True, exist_ok=True)
+                print(f"[FAST] Using cache directory: {fast_dir}")
+
+            # Banner per platform
+            _print_startup_banner(
+                fast_mode=True,
+                fast_dir=fast_dir,
+                fast_hit=fast_hit,
+                cache_dir=ns.cache,
+                rebuild=False,
+            )
+        else:
+            _print_startup_banner(
+                fast_mode=False,
+                fast_dir=None,
+                fast_hit=None,
+                cache_dir=ns.cache,
+                rebuild=True,
+            )
 
         compiler = PioCompiler(
             plat_obj,
@@ -514,28 +515,16 @@ def _run_cli(arguments: List[str]) -> int:
                 print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
                 exit_code = 1
             else:
-                # Build succeeded – when running in *fast* mode we need to update
-                # the on-disk LRU index **after** the first successful build** so
-                # that failed/partial builds never pollute the cache.
-                if (
-                    fast_mode
-                    and fast_root is not None
-                    and fast_dir is not None
-                    and fingerprint is not None
-                ):
+                # Build succeeded – update per-platform fast-cache index.
+                if fast_mode and fast_root is not None and fast_dir is not None:
                     try:
                         from disklru import DiskLRUCache
 
                         index_path = fast_root / "build_index.db"
                         lru = DiskLRUCache(str(index_path), max_entries=10)
 
-                        # Put/refresh entry for the current fingerprint.  The
-                        # returned value is not used – DiskLRUCache handles
-                        # eviction transparently.
-                        lru.put(fingerprint, str(fast_dir))
+                        lru.put(fast_dir.name, str(fast_dir))
 
-                        # Clean up directories that are **no longer** referenced
-                        # by the index (e.g. after eviction).
                         valid_keys = set(lru.keys())  # type: ignore[attr-defined]
                         for dir_entry in fast_root.iterdir():
                             if not dir_entry.is_dir():
