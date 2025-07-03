@@ -146,4 +146,5 @@ uv.lock
 
 .pio_compile/
 
-.tpo_fast_cache
+.tpo_fast_cache/
+.pio_cache/
