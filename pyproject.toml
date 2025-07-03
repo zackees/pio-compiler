@@ -14,6 +14,7 @@ dependencies = [
     "platformio>=6.1.18",
     "disklru>=2.0.4",
     "colorama>=0.4.6",
+    "filelock>=3.13.0",
 ]
 # Change this with the version number bump.
 version = "0.0.1"

@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from filelock import Timeout
+
 from pio_compiler.cache_manager import CacheManager, InvalidCacheNameError
 
 from . import TimedTestCase
@@ -450,6 +452,50 @@ board = nano"""
 
         # Different content should produce different fingerprints
         self.assertNotEqual(fingerprint1, fingerprint2)
+
+    def test_cache_entry_has_lock_file(self) -> None:
+        """Test that cache entries have properly configured lock files."""
+        entry = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+
+        # Lock file should be next to cache directory, not inside it
+        expected_lock_path = entry.cache_dir.parent / f"{entry.cache_dir.name}.lock"
+        self.assertEqual(entry.lock_file, expected_lock_path)
+        self.assertTrue(entry.lock_file.name.endswith(".lock"))
+
+    def test_cache_entry_locking_basic(self) -> None:
+        """Test basic cache entry locking functionality."""
+        entry = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+
+        # Initially no lock should be held
+        self.assertFalse(entry.lock_file.exists())
+
+        # Test context manager usage
+        with entry:
+            self.assertTrue(entry.get_lock().is_locked)
+            self.assertTrue(entry.lock_file.exists())
+
+        # Lock should be released
+        self.assertFalse(entry.get_lock().is_locked)
+
+    def test_cache_entry_lock_timeout(self) -> None:
+        """Test that cache entry locking properly times out."""
+        entry1 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+
+        # Get another reference to the same cache entry
+        entry2 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+
+        with entry1:
+            # Should not be able to acquire lock with short timeout
+            with self.assertRaises(Timeout):
+                entry2.acquire_lock(timeout=0.1)
 
 
 if __name__ == "__main__":

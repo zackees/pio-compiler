@@ -7,13 +7,18 @@ and gives us full control over cache organization and cleanup.
 The cache structure is:
 .tpo/
   ├── native-a03a3ffa/           # {platform}-{fingerprint:8}
+  ├── native-a03a3ffa.lock       # Lock file for the cache directory
   ├── uno-b4f2e8cd/
+  ├── uno-b4f2e8cd.lock
   └── teensy30-c9d1a7ef/
+  └── teensy30-c9d1a7ef.lock
 
 Each cache directory contains:
   - The compiled project files
   - PlatformIO build artifacts
   - A metadata file with creation time and source path
+
+Lock files are placed alongside cache directories to prevent concurrent access.
 """
 
 from __future__ import annotations
@@ -25,6 +30,8 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from filelock import BaseFileLock, FileLock
 
 __all__ = [
     "CacheManager",
@@ -58,6 +65,8 @@ class CacheEntry:
         self.source_path = source_path
         self.platformio_ini_content = platformio_ini_content
         self.metadata_file = cache_dir / ".cache_metadata.json"
+        self.lock_file = cache_dir.parent / f"{cache_dir.name}.lock"
+        self._file_lock: Optional[BaseFileLock] = None
 
     @property
     def name(self) -> str:
@@ -115,6 +124,48 @@ class CacheEntry:
         current_hash = hashlib.sha256(platformio_ini_content.encode()).hexdigest()
 
         return stored_hash == current_hash
+
+    def get_lock(self) -> BaseFileLock:
+        """Get the FileLock instance for this cache entry.
+
+        Returns:
+            FileLock instance for controlling concurrent access to this cache entry
+        """
+        if self._file_lock is None:
+            # Ensure the parent directory exists for the lock file (cache root)
+            self.lock_file.parent.mkdir(parents=True, exist_ok=True)
+            self._file_lock = FileLock(self.lock_file, timeout=30)
+        return self._file_lock
+
+    def acquire_lock(self, timeout: float = 30.0) -> BaseFileLock:
+        """Acquire the file lock for this cache entry.
+
+        Args:
+            timeout: Maximum time in seconds to wait for the lock
+
+        Returns:
+            Acquired FileLock instance (can be used as context manager)
+
+        Raises:
+            TimeoutError: If lock cannot be acquired within timeout
+        """
+        lock = self.get_lock()
+        lock.acquire(timeout=timeout)
+        return lock
+
+    def release_lock(self) -> None:
+        """Release the file lock for this cache entry if it's currently held."""
+        if self._file_lock is not None and self._file_lock.is_locked:
+            self._file_lock.release()
+
+    def __enter__(self) -> "CacheEntry":
+        """Context manager entry - acquire lock."""
+        self.acquire_lock()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - release lock."""
+        self.release_lock()
 
 
 class CacheManager:
