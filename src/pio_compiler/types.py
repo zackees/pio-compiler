@@ -14,21 +14,27 @@ class Platform:
 
     name: str
     platformio_ini: str | None = None
+    turbo_dependencies: list[str] = field(default_factory=list)
     _board: "Board | None" = field(default=None, init=False)
 
     def __init__(
-        self, name_or_board: Union[str, "Board"], platformio_ini: str | None = None
+        self,
+        name_or_board: Union[str, "Board"],
+        platformio_ini: str | None = None,
+        turbo_dependencies: list[str] | None = None,
     ):
         """Create a Platform from either a string name or a Board object.
 
         Args:
             name_or_board: Either a string platform name or a Board object
             platformio_ini: Optional platformio.ini content (ignored if Board is provided)
+            turbo_dependencies: List of library names for turbo (symlinked) dependencies
         """
         if isinstance(name_or_board, str):
             # Create from string name
             self.name = name_or_board
             self.platformio_ini = platformio_ini
+            self.turbo_dependencies = turbo_dependencies or []
             self._board = None
         else:
             # Create from Board object
@@ -37,6 +43,7 @@ class Platform:
             if isinstance(name_or_board, Board):
                 self.name = name_or_board.board_name
                 self.platformio_ini = name_or_board.to_platformio_ini()
+                self.turbo_dependencies = turbo_dependencies or []
                 self._board = name_or_board
             else:
                 raise TypeError(f"Expected str or Board, got {type(name_or_board)}")
@@ -94,10 +101,9 @@ def _default_platformio_ini(platform_name: str) -> str:  # pragma: no cover
     """
     if platform_name == "native":
         # Provide an opinionated *native* configuration that is suitable for
-        # building FastLED based sketches on the host machine.  The
-        # configuration mirrors what users would typically write in a
-        # ``platformio.ini`` when experimenting locally with the *native*
-        # platform:
+        # building sketches on the host machine.  The configuration mirrors
+        # what users would typically write in a ``platformio.ini`` when
+        # experimenting locally with the *native* platform:
         #
         #   * The dedicated ``[platformio]`` section makes the project layout
         #     explicit and avoids PlatformIO searching parent directories for
@@ -110,23 +116,17 @@ def _default_platformio_ini(platform_name: str) -> str:  # pragma: no cover
         #   * ``platform = platformio/native`` is the recommended identifier
         #     in recent PlatformIO versions (see
         #     https://registry.platformio.org/platforms/platformio/native).
-        #   * The FastLED stub implementation allows *host* compilation
-        #     without actual LED hardware.  The ``build_flags`` mirror the
-        #     parameters used by the upstream stub project so that example
-        #     sketches such as *examples/Blink/Blink.ino* compile without
-        #     modification.
+        #   * Libraries can be added via --lib flags or by manually specifying
+        #     lib_deps in a custom platformio.ini file.
         return """[platformio]
 src_dir = src
 
 [env:dev]
 platform = platformio/native
 
-lib_deps =
-    https://github.com/fastled/fastled
-
 ; Allow libraries that do not explicitly declare compatibility with the
-; *platformio/native* platform so that FastLED becomes available even though
-; its manifest only lists *embedded* targets.
+; *platformio/native* platform so that libraries become available even though
+; their manifests might only list *embedded* targets.
 lib_compat_mode = off
 
 build_flags =
@@ -155,15 +155,11 @@ build_flags =
             "platform": "atmelavr",
             "board": "uno",
             "framework": "arduino",
-            # Include FastLED so that example sketches compile without extra configuration.
-            "lib_deps": "FastLED",
         },
         "teensy30": {
             "platform": "teensy",
             "board": "teensy30",
             "framework": "arduino",
-            # Include FastLED so that example sketches compile without extra configuration.
-            "lib_deps": "FastLED",
         },
         # Additional aliases can be added here as the need arises.
     }

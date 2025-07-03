@@ -747,6 +747,23 @@ class PioCompilerImpl:
             src_dir = project_dir / "src"
             src_dir.mkdir(parents=True, exist_ok=True)
 
+            # Set up turbo dependencies (libraries downloaded and symlinked)
+            if self.platform.turbo_dependencies:
+                logger.info(
+                    "Setting up turbo dependencies: %s",
+                    self.platform.turbo_dependencies,
+                )
+                try:
+                    from .turbo_deps import TurboDependencyManager
+
+                    turbo_manager = TurboDependencyManager()
+                    turbo_manager.setup_turbo_dependencies(
+                        self.platform.turbo_dependencies, project_dir
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to setup turbo dependencies: %s", exc)
+                    # Continue with compilation even if turbo dependencies fail
+
             # --------------------------------------------------------------
             # When compiling for the *uno* platform we emit user-friendly
             # *print* statements that highlight the directories and build

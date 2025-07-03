@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -276,6 +276,8 @@ class CLIArguments:
     info: bool = False
     # Optional path where to save optimization reports and build info
     report: str | None = None
+    # List of turbo dependencies (libraries to download and symlink)
+    turbo_libs: list[str] = field(default_factory=list)
 
 
 def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
@@ -303,6 +305,7 @@ def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
         fast_flag=getattr(ns, "fast_flag", False),
         info=getattr(ns, "info", False),
         report=getattr(ns, "report", None),
+        turbo_libs=getattr(ns, "turbo_libs", []),
     )
 
 
@@ -429,6 +432,21 @@ def _build_argument_parser() -> argparse.ArgumentParser:
             "If no PATH is provided, saves reports to the work directory (cache root). "
             "Use '.' to save in the current working directory. "
             "Automatically enables --info mode."
+        ),
+    )
+
+    # Turbo dependencies (library management)
+    parser.add_argument(
+        "--lib",
+        metavar="LIBRARY",
+        dest="turbo_libs",
+        action="append",
+        required=False,
+        help=(
+            "Add a turbo dependency library. Downloads the library from GitHub "
+            "and symlinks it into the project without using PlatformIO's lib_deps. "
+            "Use library name (e.g., 'FastLED') which maps to github.com/fastled/fastled. "
+            "Can be used multiple times to add multiple libraries."
         ),
     )
 
@@ -561,12 +579,12 @@ def _run_cli(arguments: List[str]) -> int:
         # For native, use the string name to get the special native configuration
         # For other platforms, try to get board configuration first
         if plat_name == "native":
-            plat_obj = Platform(plat_name)
+            plat_obj = Platform(plat_name, turbo_dependencies=args.turbo_libs)
         else:
             from pio_compiler.boards import get_board
 
             board = get_board(plat_name)
-            plat_obj = Platform(board)
+            plat_obj = Platform(board, turbo_dependencies=args.turbo_libs)
 
         if args.cache:
             from pathlib import Path as _Path
