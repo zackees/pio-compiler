@@ -23,10 +23,15 @@ from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import List
 
+from colorama import Fore, Style, init
+
 from pio_compiler import PioCompiler, Platform
 from pio_compiler.boards import ALL as ALL_BOARDS
 from pio_compiler.cache_manager import CacheEntry
 from pio_compiler.logging_utils import configure_logging
+
+# Initialize colorama for Windows support
+init(autoreset=True)
 
 # Configure logging early so that all sub-modules use the same defaults when the
 # CLI is the entry-point.  Users can still override the configuration by
@@ -57,6 +62,33 @@ _CYAN = _ansi("36")
 _GREEN = _ansi("32")
 _YELLOW = _ansi("33")
 _MAGENTA = _ansi("35")
+_RED = _ansi("31")
+
+
+def _print_error(message: str, path: str | None = None) -> None:
+    """Print a stylish npm-style error message with colorama and emoticons."""
+    # Use colorama for cross-platform color support
+    error_emoji = "❌"
+
+    # Try to encode the emoji to see if it's supported
+    try:
+        error_emoji.encode(sys.stdout.encoding or "utf-8")
+    except (UnicodeEncodeError, LookupError):
+        # Fallback to ASCII if emoji not supported
+        error_emoji = "✗"
+        try:
+            error_emoji.encode(sys.stdout.encoding or "utf-8")
+        except (UnicodeEncodeError, LookupError):
+            # Final fallback
+            error_emoji = "X"
+
+    # Create the styled error message
+    if path:
+        error_msg = f"{Fore.RED}{Style.BRIGHT}{error_emoji} {message}: {Fore.YELLOW}{path}{Style.RESET_ALL}"
+    else:
+        error_msg = f"{Fore.RED}{Style.BRIGHT}{error_emoji} {message}{Style.RESET_ALL}"
+
+    print(error_msg, file=sys.stderr)
 
 
 def _tool_version() -> str:
@@ -496,11 +528,11 @@ def _run_cli(arguments: List[str]) -> int:
         path = Path(src_path).expanduser().resolve()
         if not path.exists():
             logger.error(f"Sketch path does not exist: {src_path}")
-            print(f"[ERROR] Sketch path does not exist: {src_path}")
+            _print_error("Sketch path does not exist", src_path)
             return 1
         if not path.is_dir() and not path.is_file():
             logger.error(f"Sketch path is not a valid file or directory: {src_path}")
-            print(f"[ERROR] Sketch path is not a valid file or directory: {src_path}")
+            _print_error("Sketch path is not a valid file or directory", src_path)
             return 1
 
     # Safety: *fast* mode only makes sense for a single platform & single sketch.
@@ -725,7 +757,7 @@ def _run_cli(arguments: List[str]) -> int:
             except Exception as exc:  # pragma: no cover – treat failures gracefully
                 formatted_path = _format_path_for_logging(src_path)
                 logger.error("Compilation failed for %s: %s", formatted_path, exc)
-                print(f"[ERROR] {formatted_path} – {exc}")
+                _print_error("Compilation failed", formatted_path)
                 exit_code = 1
                 continue
 
@@ -781,7 +813,9 @@ def _run_cli(arguments: List[str]) -> int:
                 logger.error(
                     "[FAILED] %s – platformio exited with %d", formatted_path, proc_rc
                 )
-                print(f"[FAILED] {formatted_path} – platformio exited with {proc_rc}\n")
+                _print_error(
+                    "Platformio exited with non-zero exit code", formatted_path
+                )
                 exit_code = 1
             else:
                 # Build succeeded – cleanup old cache entries if needed.
