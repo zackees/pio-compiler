@@ -199,4 +199,25 @@ extern HardwareSerial Serial1;  // For MIDI communication
 }
 #endif
 
+// ------------------------------------------------------------------
+// Misc utility templates / functions expected by sketches
+// ------------------------------------------------------------------
+
+template<typename T> constexpr T min(T a, T b) { return (a < b) ? a : b; }
+template<typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
+
+// Generic constrain
+template<typename T> constexpr T constrain(T amt, T low, T high) {
+    return (amt < low) ? low : ((amt > high) ? high : amt);
+}
+
+// Random overloads (using std::rand)
+inline long random(long max_val) {
+    return std::rand() % max_val;
+}
+inline long random(long min_val, long max_val) {
+    if (min_val >= max_val) return min_val;
+    return min_val + (std::rand() % (max_val - min_val));
+}
+
 #endif // ARDUINO_H 
