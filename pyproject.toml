@@ -41,7 +41,7 @@ profile = "black"
 
 [project.scripts]
 pio-compile = "pio_compiler.cli:main"
-pci = "pio_compiler.cli:main"
+pic = "pio_compiler.cli:main"
 
 [project.optional-dependencies]
 dev = [
