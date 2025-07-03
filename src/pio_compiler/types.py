@@ -101,6 +101,13 @@ build_flags =
             # Include FastLED so that example sketches compile without extra configuration.
             "lib_deps": "FastLED",
         },
+        "teensy30": {
+            "platform": "teensy",
+            "board": "teensy30",
+            "framework": "arduino",
+            # Include FastLED so that example sketches compile without extra configuration.
+            "lib_deps": "FastLED",
+        },
         # Additional aliases can be added here as the need arises.
     }
 
