@@ -53,12 +53,14 @@ class PioCompilerImpl:
         disable_auto_clean: bool = False,
         force_rebuild: bool = False,
         info_mode: bool = False,
+        cache_entry=None,
     ) -> None:
         self.platform = platform
         self.fast_mode = fast_mode
         self.disable_auto_clean = disable_auto_clean
         self.force_rebuild = force_rebuild
         self.info_mode = info_mode
+        self.cache_entry = cache_entry
         logger.debug(
             "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s, force_rebuild=%s, info_mode=%s)",
             platform.name,
@@ -749,20 +751,35 @@ class PioCompilerImpl:
 
             # Set up turbo dependencies (libraries downloaded and symlinked)
             if self.platform.turbo_dependencies:
-                logger.info(
-                    "Setting up turbo dependencies: %s",
-                    self.platform.turbo_dependencies,
-                )
-                try:
-                    from .turbo_deps import TurboDependencyManager
+                # Check if dependencies are already set up in cache to avoid redundant work
+                skip_turbo_setup = False
+                if (
+                    self.fast_mode
+                    and self.cache_entry
+                    and hasattr(self.cache_entry, "are_turbo_dependencies_setup")
+                ):
+                    skip_turbo_setup = self.cache_entry.are_turbo_dependencies_setup()
+                    if skip_turbo_setup:
+                        logger.info(
+                            "Turbo dependencies already set up in cache, skipping: %s",
+                            self.platform.turbo_dependencies,
+                        )
 
-                    turbo_manager = TurboDependencyManager()
-                    turbo_manager.setup_turbo_dependencies(
-                        self.platform.turbo_dependencies, project_dir
+                if not skip_turbo_setup:
+                    logger.info(
+                        "Setting up turbo dependencies: %s",
+                        self.platform.turbo_dependencies,
                     )
-                except Exception as exc:
-                    logger.warning("Failed to setup turbo dependencies: %s", exc)
-                    # Continue with compilation even if turbo dependencies fail
+                    try:
+                        from .turbo_deps import TurboDependencyManager
+
+                        turbo_manager = TurboDependencyManager()
+                        turbo_manager.setup_turbo_dependencies(
+                            self.platform.turbo_dependencies, project_dir
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to setup turbo dependencies: %s", exc)
+                        # Continue with compilation even if turbo dependencies fail
 
             # --------------------------------------------------------------
             # When compiling for the *uno* platform we emit user-friendly

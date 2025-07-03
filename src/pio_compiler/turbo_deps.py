@@ -204,11 +204,24 @@ class TurboDependencyManager:
         # Create symlink
         symlink_target = project_lib_dir / library_name.lower()
 
-        # Remove existing symlink/directory if it exists
+        # Check if symlink already exists and points to the correct location
         if symlink_target.exists() or symlink_target.is_symlink():
             if symlink_target.is_symlink():
+                # Check if it points to the correct location
+                try:
+                    if symlink_target.resolve() == library_source.resolve():
+                        logger.debug(
+                            f"Library '{library_name}' already correctly symlinked to {symlink_target}"
+                        )
+                        return symlink_target
+                except (OSError, RuntimeError):
+                    # Symlink might be broken, remove it
+                    pass
+
+                # Remove existing symlink if it doesn't point to correct location
                 symlink_target.unlink()
             else:
+                # Remove existing directory
                 shutil.rmtree(symlink_target)
 
         try:

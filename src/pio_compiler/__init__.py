@@ -17,6 +17,7 @@ class PioCompiler:
         disable_auto_clean: bool = False,
         force_rebuild: bool = False,
         info_mode: bool = False,
+        cache_entry=None,
     ) -> None:
         """Create a new *PioCompiler* instance.
 
@@ -45,6 +46,8 @@ class PioCompiler:
         info_mode:
             When *True*, enables generation of optimization reports and build
             information files after successful compilation.
+        cache_entry:
+            Optional cache entry information for optimized library handling.
         """
 
         from .compiler import PioCompilerImpl
@@ -56,6 +59,7 @@ class PioCompiler:
             disable_auto_clean=disable_auto_clean,
             force_rebuild=force_rebuild,
             info_mode=info_mode,
+            cache_entry=cache_entry,
         )
 
     def initialize(self) -> Result:

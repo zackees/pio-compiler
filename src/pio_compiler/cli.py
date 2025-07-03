@@ -25,6 +25,7 @@ from typing import List
 
 from pio_compiler import PioCompiler, Platform
 from pio_compiler.boards import ALL as ALL_BOARDS
+from pio_compiler.cache_manager import CacheEntry
 from pio_compiler.logging_utils import configure_logging
 
 # Configure logging early so that all sub-modules use the same defaults when the
@@ -611,11 +612,12 @@ def _run_cli(arguments: List[str]) -> int:
         # ---------------- fast-cache per platform ----------------
         fast_dir: Path | None = None
         fast_hit: bool | None = None
+        cache_entry: CacheEntry | None = None
 
         if fast_mode and cache_manager:
             src_path = Path(args.src[0]).expanduser().resolve()
             cache_entry = cache_manager.get_cache_entry(
-                src_path, plat_name, plat_obj.platformio_ini or ""
+                src_path, plat_name, plat_obj.platformio_ini or "", args.turbo_libs
             )
 
             fast_dir = cache_entry.cache_dir
@@ -635,6 +637,7 @@ def _run_cli(arguments: List[str]) -> int:
             disable_auto_clean=False,
             force_rebuild=args.clean,
             info_mode=args.info,
+            cache_entry=cache_entry if fast_mode and cache_manager else None,
         )
         init_result = compiler.initialize()
         if not init_result.ok:

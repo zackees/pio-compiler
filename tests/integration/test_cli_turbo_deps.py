@@ -16,6 +16,13 @@ class CliTurboDependenciesTest(unittest.TestCase):
         """Test that --lib argument is parsed correctly."""
         project_root = Path(__file__).resolve().parent.parent.parent
 
+        # Clean cache to ensure we get a cache miss and turbo deps are set up
+        cache_dir = project_root / ".tpo"
+        if cache_dir.exists():
+            import shutil
+
+            shutil.rmtree(cache_dir)
+
         # Test CLI with --lib flag - we'll mock the actual download to avoid network calls
         with patch(
             "pio_compiler.turbo_deps.TurboDependencyManager.setup_turbo_dependencies"
@@ -46,6 +53,7 @@ class CliTurboDependenciesTest(unittest.TestCase):
             )
 
             # Verify that setup_turbo_dependencies was called with FastLED
+            # Note: With cache optimization, this might not be called on cache hits
             mock_setup.assert_called()
             call_args = mock_setup.call_args
             self.assertIn(

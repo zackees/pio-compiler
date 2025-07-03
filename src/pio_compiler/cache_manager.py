@@ -58,12 +58,14 @@ class CacheEntry:
         fingerprint: str,
         source_path: Path,
         platformio_ini_content: str,
+        turbo_dependencies: list[str] | None = None,
     ):
         self.cache_dir = cache_dir
         self.platform = platform
         self.fingerprint = fingerprint
         self.source_path = source_path
         self.platformio_ini_content = platformio_ini_content
+        self.turbo_dependencies = turbo_dependencies or []
         self.metadata_file = cache_dir / ".cache_metadata.json"
         self.lock_file = cache_dir.parent / f"{cache_dir.name}.lock"
         self._file_lock: Optional[BaseFileLock] = None
@@ -87,6 +89,7 @@ class CacheEntry:
             "platformio_ini_hash": hashlib.sha256(
                 self.platformio_ini_content.encode()
             ).hexdigest(),
+            "turbo_dependencies": self.turbo_dependencies,
             "created_at": time.time(),
             "last_accessed": time.time(),
         }
@@ -167,6 +170,26 @@ class CacheEntry:
         """Context manager exit - release lock."""
         self.release_lock()
 
+    def are_turbo_dependencies_setup(self) -> bool:
+        """Check if turbo dependencies are already set up in this cache entry.
+
+        Returns:
+            True if all required turbo dependencies are present as symlinks/directories
+        """
+        if not self.turbo_dependencies:
+            return True  # No dependencies needed
+
+        lib_dir = self.cache_dir / "lib"
+        if not lib_dir.exists():
+            return False
+
+        for dep in self.turbo_dependencies:
+            dep_path = lib_dir / dep.lower()
+            if not dep_path.exists():
+                return False
+
+        return True
+
 
 class CacheManager:
     """Manages the fast cache directory structure with platform-fingerprint names."""
@@ -181,7 +204,11 @@ class CacheManager:
         self.cache_root.mkdir(exist_ok=True)
 
     def get_cache_entry(
-        self, source_path: Path, platform: str, platformio_ini_content: str
+        self,
+        source_path: Path,
+        platform: str,
+        platformio_ini_content: str,
+        turbo_dependencies: list[str] | None = None,
     ) -> CacheEntry:
         """Get a cache entry for the given source, platform, and platformio.ini content.
 
@@ -189,6 +216,7 @@ class CacheManager:
             source_path: Path to the source project
             platform: Target platform name (e.g., 'native', 'uno', 'teensy30')
             platformio_ini_content: Content of the platformio.ini file
+            turbo_dependencies: List of turbo dependency library names
 
         Returns:
             CacheEntry instance with platform-fingerprint directory name
@@ -199,33 +227,35 @@ class CacheManager:
         # Pre-sanitize platform name before validation to ensure it's filesystem-safe
         safe_platform = self._pre_sanitize_name(platform)
 
-        # Validate that the sanitized platform name is acceptable
+        # Validate the sanitized platform name
         self._validate_name(safe_platform, "platform")
 
-        # Generate fingerprint from platformio.ini content
-        fingerprint = self._generate_fingerprint(platformio_ini_content)
+        # Include turbo dependencies in fingerprint calculation
+        content_for_fingerprint = platformio_ini_content
+        if turbo_dependencies:
+            # Sort dependencies for consistent fingerprinting
+            sorted_deps = sorted(turbo_dependencies)
+            deps_string = "\n".join(f"turbo_dep:{dep}" for dep in sorted_deps)
+            content_for_fingerprint = f"{platformio_ini_content}\n{deps_string}"
 
-        cache_dir_name = f"{safe_platform}-{fingerprint}"
-        cache_dir = self.cache_root / cache_dir_name
+        fingerprint = self._generate_fingerprint(content_for_fingerprint)
+        cache_dir = self.cache_root / f"{safe_platform}-{fingerprint}"
 
         entry = CacheEntry(
-            cache_dir, safe_platform, fingerprint, source_path, platformio_ini_content
+            cache_dir=cache_dir,
+            platform=safe_platform,
+            fingerprint=fingerprint,
+            source_path=source_path,
+            platformio_ini_content=platformio_ini_content,
+            turbo_dependencies=turbo_dependencies or [],
         )
 
-        # If this is a new entry or we're accessing an existing one, save/update metadata
+        # Create metadata if this is a new cache entry
         if not entry.exists:
             entry.save_metadata()
         else:
-            # Verify the cache is still valid for the current platformio.ini content
-            if entry.is_valid_for_platformio_content(platformio_ini_content):
-                entry.touch_access_time()
-            else:
-                # Content has changed, invalidate and recreate
-                logger.info(
-                    f"platformio.ini content changed, invalidating cache: {entry.name}"
-                )
-                self._remove_cache_entry(entry)
-                entry.save_metadata()
+            # Update access time for existing entries
+            entry.touch_access_time()
 
         return entry
 
