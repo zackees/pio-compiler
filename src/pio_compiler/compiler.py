@@ -121,6 +121,18 @@ class PioCompilerImpl:
             src_dir = project_dir / "src"
             src_dir.mkdir(parents=True, exist_ok=True)
 
+            # --------------------------------------------------------------
+            # When compiling for the *uno* platform we emit user-friendly
+            # *print* statements that highlight the directories and build
+            # artefacts involved.  The messages are intentionally kept very
+            # lightweight so that they do not overwhelm normal output but
+            # still provide helpful breadcrumbs when users wonder where the
+            # temporary files live.
+            # --------------------------------------------------------------
+            if self.platform.name == "uno":
+                print(f"[UNO] Project directory: {project_dir}")
+                print(f"[UNO] Source directory:   {src_dir}")
+
             if example_path.is_dir():
                 # Copy everything from the example directory into *src*.
                 for file in example_path.iterdir():
@@ -177,6 +189,22 @@ class PioCompilerImpl:
         # Real build – invoke ``platformio`` and capture its output.
         # ------------------------------------------------------------------
         cmd = [pio_executable, "run", "-d", str(project_dir)]
+
+        # Enable a *light* verbose mode for the *uno* platform so that
+        # PlatformIO prints the executed commands as well as the paths of
+        # generated object files and firmware images.  This, in combination
+        # with the additional *print* statements above, gives users a clear
+        # picture of where artefacts are placed during the build.
+        if self.platform.name == "uno":
+            cmd.append("-v")
+
+            # Pre-announce the expected build output directory to improve
+            # discoverability for users who only skim the logs.
+            build_dir = project_dir / ".pio" / "build" / "uno"
+            firmware_elf = build_dir / "firmware.elf"
+            print(f"[UNO] Build directory (will be created by PlatformIO): {build_dir}")
+            print(f"[UNO] Expected firmware artefact:                   {firmware_elf}")
+
         logger.debug("Executing command: %s", cmd)
         # Use default buffering for the subprocess pipe.  Passing *bufsize=1*
         # triggers a *RuntimeWarning* on Python ≥3.9 when the stream is opened

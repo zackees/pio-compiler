@@ -143,3 +143,5 @@ uv.lock
 
 .pio
 
+
+.pio_compile/
