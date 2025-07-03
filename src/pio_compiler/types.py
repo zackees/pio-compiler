@@ -69,6 +69,26 @@ class Platform:
             # with *native* or any other platform by name alone.
             self.platformio_ini = _default_platformio_ini(self.name)
 
+    def get_platformio_ini_for_project(self, project_dir: Path) -> str:
+        """Get platformio.ini content with project-specific platform paths.
+
+        Args:
+            project_dir: The project directory where the build is happening
+
+        Returns:
+            platformio.ini content with correct platform paths
+        """
+        # For native/dev platforms, always regenerate to check for local platform
+        if self.name in ["native", "dev"]:
+            return _default_platformio_ini_for_project(self.name, project_dir)
+
+        # For other platforms, use the cached platformio_ini if available
+        if self.platformio_ini is not None:
+            return self.platformio_ini
+
+        # Fallback to generating default
+        return _default_platformio_ini_for_project(self.name, project_dir)
+
     @property
     def board(self) -> "Board | None":
         """Get the associated Board object if this Platform was created from a Board."""
@@ -98,8 +118,47 @@ def _default_platformio_ini(platform_name: str) -> str:  # pragma: no cover
     This function is *not* exhaustive – it only provides a working default for
     the built-in *native* environment and leaves other environments for the
     user to define explicitly.
+
+    Note: This function is used when no project directory context is available.
+    For project-specific configurations, use _default_platformio_ini_for_project.
     """
-    if platform_name == "native":
+    return _default_platformio_ini_for_project(platform_name, None)
+
+
+def _default_platformio_ini_for_project(
+    platform_name: str, project_dir: Path | None
+) -> str:  # pragma: no cover
+    """Return a minimal platformio.ini for *native* builds or a generic platform.
+
+    This function is *not* exhaustive – it only provides a working default for
+    the built-in *native* environment and leaves other environments for the
+    user to define explicitly.
+
+    Args:
+        platform_name: Name of the platform
+        project_dir: Project directory (used to check for local platform downloads)
+    """
+    # Platform aliases that should be expanded to full GitHub URLs
+    platform_aliases = {
+        "native": "https://github.com/platformio/platform-native.git",
+        "dev": "https://github.com/platformio/platform-native.git",
+    }
+
+    # Check if this is a platform alias that should be expanded
+    if platform_name in platform_aliases:
+        # Check if we have a local platform symlink/copy available
+        # This will be set up by the compiler when it downloads the platform
+        local_platform_path = None
+        if project_dir is not None:
+            local_platform_path = project_dir / "platforms" / platform_name.lower()
+
+        if local_platform_path and local_platform_path.exists():
+            # Use local platform path - PlatformIO supports file:// URLs for local platforms
+            platform_spec = f"file://{local_platform_path.resolve()}"
+        else:
+            # Fall back to GitHub URL if local platform not available
+            platform_spec = platform_aliases[platform_name]
+
         # Provide an opinionated *native* configuration that is suitable for
         # building sketches on the host machine.  The configuration mirrors
         # what users would typically write in a ``platformio.ini`` when
@@ -113,16 +172,15 @@ def _default_platformio_ini(platform_name: str) -> str:  # pragma: no cover
         #     projects do.  It also doubles as a litmus-test that the
         #     compiler does not make any assumptions regarding the exact
         #     environment name.
-        #   * ``platform = platformio/native`` is the recommended identifier
-        #     in recent PlatformIO versions (see
-        #     https://registry.platformio.org/platforms/platformio/native).
+        #   * ``platform = file://...`` is used to reference the locally downloaded
+        #     platform instead of using PlatformIO's platform registry.
         #   * Libraries can be added via --lib flags or by manually specifying
         #     lib_deps in a custom platformio.ini file.
-        return """[platformio]
+        return f"""[platformio]
 src_dir = src
 
 [env:dev]
-platform = platformio/native
+platform = {platform_spec}
 
 ; Allow libraries that do not explicitly declare compatibility with the
 ; *platformio/native* platform so that libraries become available even though

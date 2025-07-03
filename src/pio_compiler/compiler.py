@@ -749,6 +749,38 @@ class PioCompilerImpl:
             src_dir = project_dir / "src"
             src_dir.mkdir(parents=True, exist_ok=True)
 
+            # Set up platform downloads for native/dev platforms BEFORE other setup
+            if self.platform.name in ["native", "dev"]:
+                # Check if platform is already set up in cache to avoid redundant work
+                skip_platform_setup = False
+                if (
+                    self.fast_mode
+                    and self.cache_entry
+                    and hasattr(self.cache_entry, "is_platform_setup")
+                ):
+                    skip_platform_setup = self.cache_entry.is_platform_setup()
+                    if skip_platform_setup:
+                        logger.info(
+                            "Platform '%s' already set up in cache, skipping download",
+                            self.platform.name,
+                        )
+
+                if not skip_platform_setup:
+                    logger.info(
+                        "Setting up platform '%s' by downloading from GitHub",
+                        self.platform.name,
+                    )
+                    try:
+                        from .turbo_deps import TurboDependencyManager
+
+                        turbo_manager = TurboDependencyManager()
+                        turbo_manager.symlink_platform(self.platform.name, project_dir)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to setup platform '%s': %s", self.platform.name, exc
+                        )
+                        # Continue with compilation even if platform setup fails
+
             # Set up turbo dependencies (libraries downloaded and symlinked)
             if self.platform.turbo_dependencies:
                 # Check if dependencies are already set up in cache to avoid redundant work
@@ -891,7 +923,9 @@ class PioCompilerImpl:
 
             # Write platformio.ini in project_dir with user-provided contents.
             ini_path = project_dir / "platformio.ini"
-            ini_path.write_text(self.platform.platformio_ini or "", encoding="utf-8")
+            # Use project-specific platformio.ini generation that can handle local platform paths
+            ini_content = self.platform.get_platformio_ini_for_project(project_dir)
+            ini_path.write_text(ini_content, encoding="utf-8")
 
             # ------------------------------------------------------------------
             # Persist list of copied/generated paths so that external tools (and

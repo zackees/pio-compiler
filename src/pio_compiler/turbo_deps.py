@@ -1,6 +1,6 @@
 """Turbo dependencies management for pio_compiler.
 
-This module handles downloading libraries from GitHub and symlinking them
+This module handles downloading libraries and platforms from GitHub and symlinking them
 into projects without using PlatformIO's lib_deps system.
 """
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class TurboDependencyManager:
-    """Manages turbo dependencies - libraries downloaded and symlinked directly."""
+    """Manages turbo dependencies - libraries and platforms downloaded and symlinked directly."""
 
     def __init__(self, cache_dir: Path | None = None):
         """Initialize the turbo dependency manager.
@@ -32,6 +32,10 @@ class TurboDependencyManager:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Platform cache directory
+        self.platform_cache_dir = cache_dir / "platforms"
+        self.platform_cache_dir.mkdir(parents=True, exist_ok=True)
+
         # Known library mappings - maps library name to GitHub repo
         self.library_mappings: Dict[str, str] = {
             "fastled": "fastled/fastled",
@@ -41,6 +45,13 @@ class TurboDependencyManager:
             "pubsub_client": "knolleary/pubsubclient",
             "esp_async_webserver": "me-no-dev/ESPAsyncWebServer",
             # Add more mappings as needed
+        }
+
+        # Known platform mappings - maps platform name to GitHub repo
+        self.platform_mappings: Dict[str, str] = {
+            "native": "platformio/platform-native",
+            "dev": "platformio/platform-native",  # dev is an alias for native
+            "platform-native": "platformio/platform-native",
         }
 
     def get_github_url(self, library_name: str) -> str:
@@ -265,3 +276,160 @@ class TurboDependencyManager:
 
         logger.info(f"Successfully set up {len(symlinked_paths)} turbo dependencies")
         return symlinked_paths
+
+    def download_platform(self, platform_name: str) -> Path:
+        """Download a platform from GitHub and extract it to cache.
+
+        Args:
+            platform_name: Name of the platform to download
+
+        Returns:
+            Path to the extracted platform directory
+
+        Raises:
+            Exception: If download or extraction fails
+        """
+        # Normalize platform name
+        normalized_name = platform_name.lower()
+
+        # Check if platform is already cached
+        platform_dir = self.platform_cache_dir / normalized_name
+        if platform_dir.exists():
+            logger.debug(f"Platform '{platform_name}' already cached at {platform_dir}")
+            return platform_dir
+
+        # Get GitHub URL for platform
+        if normalized_name not in self.platform_mappings:
+            raise ValueError(
+                f"Platform '{platform_name}' not supported. "
+                f"Known platforms: {list(self.platform_mappings.keys())}"
+            )
+
+        github_url = f"https://github.com/{self.platform_mappings[normalized_name]}"
+
+        # Try multiple branch names
+        branch_names = ["main", "master", "develop"]
+
+        logger.info(f"Downloading platform '{platform_name}' from {github_url}")
+
+        for branch_name in branch_names:
+            zip_url = f"{github_url}/archive/refs/heads/{branch_name}.zip"
+            temp_zip_path = None
+
+            try:
+                logger.debug(f"Trying branch '{branch_name}' at {zip_url}")
+
+                # Download the zip file
+                with tempfile.NamedTemporaryFile(
+                    suffix=".zip", delete=False
+                ) as temp_file:
+                    temp_zip_path = Path(temp_file.name)
+
+                    with urlopen(zip_url) as response:
+                        temp_file.write(response.read())
+
+                # Extract the zip file
+                with zipfile.ZipFile(temp_zip_path, "r") as zip_ref:
+                    # Extract to temporary directory first
+                    with tempfile.TemporaryDirectory() as temp_extract_dir:
+                        zip_ref.extractall(temp_extract_dir)
+
+                        # Find the extracted directory (usually has format "repo-branch")
+                        extract_path = Path(temp_extract_dir)
+                        extracted_dirs = [
+                            d for d in extract_path.iterdir() if d.is_dir()
+                        ]
+
+                        if not extracted_dirs:
+                            raise Exception(
+                                f"No directories found in extracted zip for {platform_name}"
+                            )
+
+                        # Use the first (and typically only) directory
+                        source_dir = extracted_dirs[0]
+
+                        # Move to final cache location
+                        if platform_dir.exists():
+                            shutil.rmtree(platform_dir)
+                        shutil.move(str(source_dir), str(platform_dir))
+
+                # Clean up temporary zip file
+                temp_zip_path.unlink()
+
+                logger.info(
+                    f"Platform '{platform_name}' downloaded and cached at {platform_dir}"
+                )
+                return platform_dir
+
+            except Exception as e:
+                logger.debug(f"Branch '{branch_name}' failed: {e}")
+                # Clean up on failure for this branch
+                if temp_zip_path and temp_zip_path.exists():
+                    temp_zip_path.unlink()
+                if platform_dir.exists():
+                    shutil.rmtree(platform_dir)
+
+                # Continue to next branch
+                continue
+
+        # If we get here, all branches failed
+        error_msg = f"Failed to download platform '{platform_name}' from any branch: {branch_names}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
+
+    def symlink_platform(self, platform_name: str, target_project_dir: Path) -> Path:
+        """Symlink a platform into a project's platforms directory.
+
+        Args:
+            platform_name: Name of the platform to symlink
+            target_project_dir: Project directory where to create the symlink
+
+        Returns:
+            Path to the symlinked platform in the project
+
+        Raises:
+            Exception: If symlinking fails
+        """
+        # Download platform if not cached
+        platform_source = self.download_platform(platform_name)
+
+        # Create platforms directory in project if it doesn't exist
+        project_platforms_dir = target_project_dir / "platforms"
+        project_platforms_dir.mkdir(exist_ok=True)
+
+        # Create symlink
+        normalized_name = platform_name.lower()
+        symlink_target = project_platforms_dir / normalized_name
+
+        # Check if symlink already exists and points to the correct location
+        if symlink_target.exists() or symlink_target.is_symlink():
+            if symlink_target.is_symlink():
+                # Check if it points to the correct location
+                try:
+                    if symlink_target.resolve() == platform_source.resolve():
+                        logger.debug(
+                            f"Platform '{platform_name}' already correctly symlinked to {symlink_target}"
+                        )
+                        return symlink_target
+                except (OSError, RuntimeError):
+                    # Symlink might be broken, remove it
+                    pass
+
+                # Remove existing symlink if it doesn't point to correct location
+                symlink_target.unlink()
+            else:
+                # Remove existing directory
+                shutil.rmtree(symlink_target)
+
+        try:
+            # Create the symlink
+            symlink_target.symlink_to(platform_source, target_is_directory=True)
+            logger.info(f"Symlinked platform '{platform_name}' to {symlink_target}")
+            return symlink_target
+        except OSError as e:
+            # On Windows, symlinks might fail due to permissions
+            # Fall back to copying the directory
+            logger.warning(f"Platform symlink failed, copying instead: {e}")
+            shutil.copytree(platform_source, symlink_target)
+            logger.info(f"Copied platform '{platform_name}' to {symlink_target}")
+            return symlink_target
