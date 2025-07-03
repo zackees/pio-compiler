@@ -13,6 +13,7 @@ class PioCompiler:
         *,
         work_dir: Path | None = None,
         fast_mode: bool = False,
+        disable_auto_clean: bool = False,
     ) -> None:
         """Create a new *PioCompiler* instance.
 
@@ -31,12 +32,18 @@ class PioCompiler:
             When *True* the underlying implementation enables additional
             optimisations such as ``--disable-auto-clean`` and
             ``--disable-ldf`` on cache *hits* to minimise build latency.
+        disable_auto_clean:
+            When *True*, disables automatic cleanup of temporary directories
+            at interpreter shutdown. Useful for debugging build artifacts.
         """
 
         from .compiler import PioCompilerImpl
 
         self.__impl: PioCompilerImpl = PioCompilerImpl(
-            platform, work_dir=work_dir, fast_mode=fast_mode
+            platform,
+            work_dir=work_dir,
+            fast_mode=fast_mode,
+            disable_auto_clean=disable_auto_clean,
         )
 
     def initialize(self) -> Result:

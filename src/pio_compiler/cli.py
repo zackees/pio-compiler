@@ -227,6 +227,19 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=argparse.SUPPRESS,
     )
+
+    parser.add_argument(
+        "--keep-build-dir",
+        dest="keep_build_dir",
+        action="store_true",
+        help=(
+            "Keep temporary build directories after the process exits. "
+            "Disables the automatic clean-up performed by pio_compiler so "
+            "that generated build artefacts remain available for manual "
+            "inspection and debugging."
+        ),
+    )
+
     return parser
 
 
@@ -429,6 +442,7 @@ def _run_cli(arguments: List[str]) -> int:
             plat_obj,
             work_dir=fast_dir if fast_mode else None,
             fast_mode=fast_mode,
+            disable_auto_clean=getattr(ns, "keep_build_dir", False),
         )
         init_result = compiler.initialize()
         if not init_result.ok:

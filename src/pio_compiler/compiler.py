@@ -38,20 +38,25 @@ class PioCompilerImpl:
         work_dir: Optional[Path] = None,
         *,
         fast_mode: bool = False,
+        disable_auto_clean: bool = False,
     ) -> None:
         self.platform = platform
         self.fast_mode = fast_mode
+        self.disable_auto_clean = disable_auto_clean
         logger.debug(
-            "Creating PioCompilerImpl for platform %s (fast_mode=%s)",
+            "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s)",
             platform.name,
             fast_mode,
+            disable_auto_clean,
         )
         # Work in a dedicated temporary directory unless the caller wants a
         # persistent *work_dir*.
         self._work_dir = (
             Path(work_dir)
             if work_dir is not None
-            else tempdir.mkdtemp(prefix="pio_compiler_")
+            else tempdir.mkdtemp(
+                prefix="pio_compiler_", disable_auto_clean=disable_auto_clean
+            )
         )
         self._ini_path = self._work_dir / "platformio.ini"
 

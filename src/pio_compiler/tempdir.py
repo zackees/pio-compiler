@@ -39,12 +39,20 @@ __all__ = [
 # Internal state – the cached path to the lazily created temporary root.
 # ---------------------------------------------------------------------------
 _TEMP_ROOT: Optional[Path] = None
+_AUTO_CLEAN_DISABLED: bool = False
 
 
-def get_temp_root() -> Path:
-    """Return the *project-local* temporary directory, creating it if needed."""
+def get_temp_root(*, disable_auto_clean: bool = False) -> Path:
+    """Return the *project-local* temporary directory, creating it if needed.
 
-    global _TEMP_ROOT
+    Parameters
+    ----------
+    disable_auto_clean:
+        When True, disables automatic cleanup of the temporary directory
+        at interpreter shutdown. Useful for debugging build artifacts.
+    """
+
+    global _TEMP_ROOT, _AUTO_CLEAN_DISABLED
     if _TEMP_ROOT is None:
         base_root = Path.cwd() / ".pio_compile"
         base_root.mkdir(parents=True, exist_ok=True)
@@ -52,17 +60,36 @@ def get_temp_root() -> Path:
         # concurrent test workers or processes never step on each other's toes.
         _TEMP_ROOT = Path(tempfile.mkdtemp(prefix="run_", dir=base_root))
 
-        # Register automatic clean-up at interpreter shutdown.  Registering the
-        # handler *once* is sufficient because we only create _TEMP_ROOT once.
-        atexit.register(_cleanup_temp_root)
+        # Store the auto-clean preference
+        _AUTO_CLEAN_DISABLED = disable_auto_clean
+
+        # Register automatic clean-up at interpreter shutdown unless disabled
+        if not disable_auto_clean:
+            atexit.register(_cleanup_temp_root)
 
     return _TEMP_ROOT
 
 
-def mkdtemp(*, prefix: str = "", suffix: str = "") -> Path:
-    """Create a new *unique* directory *inside* the temporary root and return its :class:`~pathlib.Path`."""
+def mkdtemp(
+    *, prefix: str = "", suffix: str = "", disable_auto_clean: bool = False
+) -> Path:
+    """Create a new *unique* directory *inside* the temporary root and return its :class:`~pathlib.Path`.
 
-    return Path(tempfile.mkdtemp(prefix=prefix, suffix=suffix, dir=get_temp_root()))
+    Parameters
+    ----------
+    prefix, suffix:
+        Naming hints for the created directory.
+    disable_auto_clean:
+        When True, disables automatic cleanup of the temporary root directory.
+    """
+
+    return Path(
+        tempfile.mkdtemp(
+            prefix=prefix,
+            suffix=suffix,
+            dir=get_temp_root(disable_auto_clean=disable_auto_clean),
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +103,10 @@ def _cleanup_temp_root() -> None:  # pragma: no cover – exercised implicitly
     global _TEMP_ROOT
 
     if _TEMP_ROOT is None:
+        return
+
+    # Honor the disable flag that was set when the temp root was created
+    if _AUTO_CLEAN_DISABLED:
         return
 
     try:
@@ -119,12 +150,13 @@ class TemporaryDirectory:  # noqa: D101 – docstring below provides details.
         suffix: str | None = None,
         prefix: str | None = None,
         dir: Path | None = None,
+        disable_auto_clean: bool = False,
     ):
         # Defer to the stdlib – we merely patch the *dir* argument.
         self._inner = tempfile.TemporaryDirectory(
             suffix=suffix or "",
             prefix=prefix or "",
-            dir=(dir or get_temp_root()),
+            dir=(dir or get_temp_root(disable_auto_clean=disable_auto_clean)),
         )
 
         # Public attribute defined by the stdlib class – expose as Path.
