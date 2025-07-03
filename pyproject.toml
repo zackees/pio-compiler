@@ -42,6 +42,7 @@ profile = "black"
 [project.scripts]
 pio-compile = "pio_compiler.cli:main"
 pic = "pio_compiler.cli:main"
+tpo = "pio_compiler.cli:main" # new name "turbo pio compile"
 
 [project.optional-dependencies]
 dev = [
