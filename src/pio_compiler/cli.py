@@ -525,7 +525,15 @@ def _run_cli(arguments: List[str]) -> int:
 
                         lru.put(fast_dir.name, str(fast_dir))
 
-                        valid_keys = set(lru.keys())  # type: ignore[attr-defined]
+                        try:
+                            # Prefer public API if library adds it later
+                            valid_keys = set(lru.keys())  # type: ignore[attr-defined]
+                        except AttributeError:
+                            # Fall back to direct DB query (disklru 2.0.x does not expose keys())
+                            conn, cursor = lru._get_session()  # type: ignore[attr-defined]
+                            cursor.execute("SELECT key FROM cache")
+                            valid_keys = {row[0] for row in cursor.fetchall()}
+
                         for dir_entry in fast_root.iterdir():
                             if not dir_entry.is_dir():
                                 continue
