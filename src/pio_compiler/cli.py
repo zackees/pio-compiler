@@ -135,21 +135,35 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     """Return an :class:`argparse.ArgumentParser` configured for this CLI."""
 
     parser = argparse.ArgumentParser(
-        prog="poi-compiler",
-        description="Compile PlatformIO examples efficiently.",
+        prog="tpo",
+        usage="%(prog)s <sketch_path> [additional_sketches…] --<platform> [options]",
+        description=(
+            "Compile PlatformIO sketches with optional caching and fast-build capabilities.\n\n"
+            "Typical usage:\n"
+            "  tpo examples/Blink --uno           # Build Blink.ino for Arduino UNO\n"
+            "  tpo examples/Blink --native       # Build for the host (native) platform\n"
+            "  tpo project/Sketch --native --fast\n"
+            "  tpo project/Sketch --native --rebuild --cache .pio_cache\n\n"
+            "Multiple sketches can be supplied using repeated --src flags or by listing them "
+            "sequentially before the platform flag."
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
         add_help=True,
     )
     parser.add_argument(
         "platform",
         help="Target platform name as understood by PlatformIO (e.g. 'native', 'esp32', …).",
     )
+    # Retain legacy --src flag for explicit usage but hide it from --help to
+    # keep the primary syntax focused on the intuitive *positional* sketch
+    # paths + platform flag.
     parser.add_argument(
         "--src",
         metavar="PATH",
         dest="src",
         action="append",
-        required=True,
-        help="Path to a PlatformIO example or project to compile.  Can be supplied multiple times.",
+        required=False,
+        help=argparse.SUPPRESS,
     )
     # ------------------------------------------------------------------
     # Cache directory is *independent* of build mode.  Users may combine
@@ -196,6 +210,12 @@ def _build_argument_parser() -> argparse.ArgumentParser:
 
 def _run_cli(arguments: List[str]) -> int:
     """Internal helper that contains the real CLI implementation."""
+
+    # Handle built-in help before any custom preprocessing so that users can
+    # always rely on "tpo --help" regardless of argument order.
+    if any(tok in {"-h", "--help"} for tok in arguments):
+        _build_argument_parser().print_help(sys.stdout)
+        return 0
 
     # ------------------------------------------------------------------
     # Support *alternative* call style:  ``pio-compile <example> --native``
@@ -310,15 +330,13 @@ def _run_cli(arguments: List[str]) -> int:
     elif getattr(ns, "fast_flag", False):
         fast_mode = True
 
-    # Convert argparse.Namespace → dataclass instance for type-safety.
-    cli_args = CLIArguments(
-        platform=ns.platform, src=ns.src, cache=ns.cache, fast=fast_mode
-    )
+    # Ensure *src* is a list to simplify downstream handling.
+    src_list: list[str] = ns.src if ns.src is not None else []
 
     # ------------------------------------------------------------------
     # Create compiler instance for the requested platform.
     # ------------------------------------------------------------------
-    platform = Platform(cli_args.platform)
+    platform = Platform(ns.platform)
 
     # ------------------------------------------------------------------
     # Inject *build_cache_dir* into the generated *platformio.ini* when the
@@ -326,7 +344,7 @@ def _run_cli(arguments: List[str]) -> int:
     # logic contained so that the rest of the compiler remains unchanged.
     # ------------------------------------------------------------------
 
-    if cli_args.cache:
+    if ns.cache:
 
         def _with_build_cache_dir(base_ini: str | None, cache_dir: str) -> str:
             """Return *base_ini* with a 'build_cache_dir' setting injected.
@@ -380,7 +398,7 @@ def _run_cli(arguments: List[str]) -> int:
 
         from pathlib import Path as _Path
 
-        abs_cache_dir = str(_Path(cli_args.cache).expanduser().resolve())
+        abs_cache_dir = str(_Path(ns.cache).expanduser().resolve())
         platform.platformio_ini = _with_build_cache_dir(
             platform.platformio_ini, abs_cache_dir
         )
@@ -397,14 +415,14 @@ def _run_cli(arguments: List[str]) -> int:
     fingerprint: str | None = None
     fast_hit: bool | None = None
 
-    if cli_args.fast:
-        if len(cli_args.src) != 1:
+    if fast_mode:
+        if len(src_list) != 1:
             logger.error("--fast mode supports exactly one --src path at the moment.")
             return 1
 
         import hashlib
 
-        src_path = Path(cli_args.src[0]).expanduser().resolve()
+        src_path = Path(src_list[0]).expanduser().resolve()
         hash_input = f"{src_path}:{platform.name}".encode()
         fingerprint = hashlib.sha256(hash_input).hexdigest()[:12]
 
@@ -427,17 +445,17 @@ def _run_cli(arguments: List[str]) -> int:
     # ------------------------------------------------------------------
 
     _print_startup_banner(
-        fast_mode=cli_args.fast,
+        fast_mode=fast_mode,
         fast_dir=fast_dir,
         fast_hit=fast_hit,
-        cache_dir=cli_args.cache,
-        rebuild=not cli_args.fast,
+        cache_dir=ns.cache,
+        rebuild=not fast_mode,
     )
 
     compiler = PioCompiler(
         platform,
         work_dir=fast_dir,
-        fast_mode=cli_args.fast,
+        fast_mode=fast_mode,
     )
 
     init_result = compiler.initialize()
@@ -446,7 +464,7 @@ def _run_cli(arguments: List[str]) -> int:
         return 1
 
     # Compile requested examples
-    src_paths = [Path(p) for p in cli_args.src]
+    src_paths = [Path(p) for p in src_list]
 
     logger.debug("Starting compilation for %d example(s)", len(src_paths))
     streams = compiler.multi_compile(src_paths)
@@ -510,7 +528,7 @@ def _run_cli(arguments: List[str]) -> int:
             # the on-disk LRU index **after** the first successful build** so
             # that failed/partial builds never pollute the cache.
             if (
-                cli_args.fast
+                fast_mode
                 and fast_root is not None
                 and fast_dir is not None
                 and fingerprint is not None
