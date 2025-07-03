@@ -5,7 +5,7 @@ from .types import Platform, Result
 
 
 class PioCompiler:
-    def __init__(self, platform: Platform):
+    def __init__(self, platform: Platform) -> None:
         from .compiler import PioCompilerImpl
 
         self.__impl: PioCompilerImpl = PioCompilerImpl(platform)
