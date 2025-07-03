@@ -81,6 +81,7 @@ lib_compat_mode = off
 build_flags =
     -DFASTLED_STUB_IMPL
     -std=c++17
+    -Isrc/pio_compiler/assets
 """
 
     # ------------------------------------------------------------------

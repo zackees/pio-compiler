@@ -338,7 +338,7 @@ class PioCompilerImpl:
 
         Args:
             src_dir: Directory to inject the files into
-            fastled_mode: If True, only inject implementation file (FastLED provides headers)
+            fastled_mode: If True, inject FastLED-specific implementation alongside Arduino.h
         """
         # Get the assets directory relative to this module
         assets_dir = Path(__file__).parent / "assets"
@@ -349,8 +349,13 @@ class PioCompilerImpl:
         arduino_h_dest = src_dir / "Arduino.h"
         arduino_cpp_dest = src_dir / "arduino.cpp"
 
-        # For FastLED projects, inject FastLED-specific implementation (not the header)
-        # FastLED provides its own Arduino headers but not native implementations
+        # Always inject Arduino.h header for native platform compatibility
+        if arduino_h_source.exists() and not arduino_h_dest.exists():
+            logger.debug("Injecting Arduino.h compatibility header")
+            shutil.copy(arduino_h_source, arduino_h_dest)
+
+        # For FastLED projects, inject FastLED-specific implementation
+        # For non-FastLED projects, inject standard Arduino implementation
         if fastled_mode:
             fastled_impl_source = assets_dir / "fastled_arduino_impl.cpp"
             fastled_impl_dest = src_dir / "fastled_arduino_impl.cpp"
@@ -358,11 +363,7 @@ class PioCompilerImpl:
                 logger.debug("Injecting FastLED-specific Arduino implementation")
                 shutil.copy(fastled_impl_source, fastled_impl_dest)
         else:
-            # For non-FastLED projects, inject both header and implementation
-            if arduino_h_source.exists() and not arduino_h_dest.exists():
-                logger.debug("Injecting Arduino.h compatibility header")
-                shutil.copy(arduino_h_source, arduino_h_dest)
-
+            # For non-FastLED projects, inject standard Arduino implementation
             if arduino_cpp_source.exists() and not arduino_cpp_dest.exists():
                 logger.debug("Injecting arduino.cpp compatibility implementation")
                 shutil.copy(arduino_cpp_source, arduino_cpp_dest)

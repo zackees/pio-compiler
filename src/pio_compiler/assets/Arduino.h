@@ -50,8 +50,91 @@ void delay(unsigned long ms);
 void delayMicroseconds(unsigned int us);
 #endif
 
-// Math functions (wrapped to avoid conflicts with std library)
+// Random functions
+#ifndef FASTLED_STUB_IMPL
+long random(long);
+long random(long, long);
+void randomSeed(unsigned long);
+#endif
+
+// Map function
+long map(long, long, long, long, long);
+
+// Bit manipulation
+#define lowByte(w) ((uint8_t) ((w) & 0xff))
+#define highByte(w) ((uint8_t) ((w) >> 8))
+
+#define bitRead(value, bit) (((value) >> (bit)) & 0x01)
+#define bitSet(value, bit) ((value) |= (1UL << (bit)))
+#define bitClear(value, bit) ((value) &= ~(1UL << (bit)))
+#define bitWrite(value, bit, bitvalue) (bitvalue ? bitSet(value, bit) : bitClear(value, bit))
+
+#define bit(b) (1UL << (b))
+
+// Program space macros (no-op on native)
+#define PROGMEM
+#define pgm_read_byte(addr) (*(const unsigned char *)(addr))
+#define pgm_read_word(addr) (*(const unsigned short *)(addr))
+#define pgm_read_dword(addr) (*(const unsigned long *)(addr))
+
+// String constants in program space
+#define F(string_literal) (string_literal)
+
+// String class (basic implementation)
+class String {
+private:
+    char *buffer;
+    unsigned int _capacity;
+    unsigned int _length;
+
+public:
+    String(const char *cstr = "");
+    String(const String &str);
+    ~String();
+    
+    String& operator=(const String &rhs);
+    String& operator=(const char *cstr);
+    
+    bool operator==(const String &rhs) const;
+    bool operator!=(const String &rhs) const;
+    
+    String operator+(const String &rhs) const;
+    String& operator+=(const String &rhs);
+    
+    char charAt(unsigned int index) const;
+    void setCharAt(unsigned int index, char c);
+    char operator[](unsigned int index) const;
+    
+    unsigned int length() const { return _length; }
+    const char* c_str() const { return buffer; }
+    
+    int indexOf(char ch) const;
+    int indexOf(const String &str) const;
+    
+    String substring(unsigned int beginIndex) const;
+    String substring(unsigned int beginIndex, unsigned int endIndex) const;
+    
+    void toUpperCase();
+    void toLowerCase();
+    void trim();
+    
+    long toInt() const;
+    double toFloat() const;
+};
+
 #ifdef __cplusplus
+}
+
+// FastLED compatibility macros
+#ifndef FL_UNUSED
+#define FL_UNUSED(x) ((void)(x))
+#endif
+
+#ifndef FASTLED_UNUSED
+#define FASTLED_UNUSED(x) ((void)(x))
+#endif
+
+// Math functions (templates must be outside extern "C")
 template<typename T> constexpr T min(T a, T b) { return (a < b) ? a : b; }
 template<typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
 template<typename T> constexpr T abs(T x) { return (x > 0) ? x : -x; }
@@ -117,82 +200,5 @@ extern HardwareSerial Serial;
 #define sei()
 #define interrupts() sei()
 #define noInterrupts() cli()
-
-// Random functions
-#ifndef FASTLED_STUB_IMPL
-long random(long);
-long random(long, long);
-void randomSeed(unsigned long);
-#endif
-
-// Map function
-long map(long, long, long, long, long);
-
-// Bit manipulation
-#define lowByte(w) ((uint8_t) ((w) & 0xff))
-#define highByte(w) ((uint8_t) ((w) >> 8))
-
-#define bitRead(value, bit) (((value) >> (bit)) & 0x01)
-#define bitSet(value, bit) ((value) |= (1UL << (bit)))
-#define bitClear(value, bit) ((value) &= ~(1UL << (bit)))
-#define bitWrite(value, bit, bitvalue) (bitvalue ? bitSet(value, bit) : bitClear(value, bit))
-
-#define bit(b) (1UL << (b))
-
-// Program space macros (no-op on native)
-#define PROGMEM
-#define pgm_read_byte(addr) (*(const unsigned char *)(addr))
-#define pgm_read_word(addr) (*(const unsigned short *)(addr))
-#define pgm_read_dword(addr) (*(const unsigned long *)(addr))
-
-// String constants in program space
-#define F(string_literal) (string_literal)
-
-#ifdef __cplusplus
-}
-
-// String class (basic implementation)
-class String {
-private:
-    char *buffer;
-    unsigned int _capacity;
-    unsigned int _length;
-
-public:
-    String(const char *cstr = "");
-    String(const String &str);
-    ~String();
-    
-    String& operator=(const String &rhs);
-    String& operator=(const char *cstr);
-    
-    bool operator==(const String &rhs) const;
-    bool operator!=(const String &rhs) const;
-    
-    String operator+(const String &rhs) const;
-    String& operator+=(const String &rhs);
-    
-    char charAt(unsigned int index) const;
-    void setCharAt(unsigned int index, char c);
-    char operator[](unsigned int index) const;
-    
-    unsigned int length() const { return _length; }
-    const char* c_str() const { return buffer; }
-    
-    int indexOf(char ch) const;
-    int indexOf(const String &str) const;
-    
-    String substring(unsigned int beginIndex) const;
-    String substring(unsigned int beginIndex, unsigned int endIndex) const;
-    
-    void toUpperCase();
-    void toLowerCase();
-    void trim();
-    
-    long toInt() const;
-    double toFloat() const;
-};
-
-#endif
 
 #endif // ARDUINO_H 

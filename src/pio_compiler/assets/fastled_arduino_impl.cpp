@@ -5,6 +5,11 @@
 #include <cstdlib>
 #include <cstdint>
 
+// FastLED compatibility macros
+#ifndef FL_UNUSED
+#define FL_UNUSED(x) ((void)(x))
+#endif
+
 // Global time tracking for Arduino timing functions
 static struct timespec arduino_start_time;
 static bool time_initialized = false;
@@ -14,6 +19,8 @@ static void init_time() {
     if (!time_initialized) {
         clock_gettime(CLOCK_MONOTONIC, &arduino_start_time);
         time_initialized = true;
+        // Initialize random seed
+        srand((unsigned int)time(NULL));
     }
 }
 
@@ -53,6 +60,21 @@ void delayMicroseconds(unsigned int us) {
 void yield(void) {
     // Simple yield implementation - just a small delay
     usleep(1);
+}
+
+// Random functions for Arduino compatibility
+long random(long max) {
+    init_time();
+    return rand() % max;
+}
+
+long random(long min, long max) {
+    init_time();
+    return min + (rand() % (max - min));
+}
+
+void randomSeed(unsigned long seed) {
+    srand(seed);
 }
 
 // Pin functions that FastLED sensors need
