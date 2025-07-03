@@ -244,19 +244,51 @@ def _print_info_reports(
 class CLIArguments:
     """Structured representation of user-supplied CLI arguments."""
 
-    platform: str
+    # List of source paths (sketches)
     src: list[str]
+    # List of target platforms
+    platforms: list[str]
     # Optional path to a *global* PlatformIO build cache directory.  When
     # provided *pio_compiler* injects the corresponding ``build_cache_dir``
     # option into the generated *platformio.ini* so that subsequent builds
     # share artefacts across independent project directories.
     cache: str | None = None
-    # Enable *fast* mode (persistent work directory with incremental builds)
-    fast: bool = False
+    # Force a full clean build (inverse of fast mode)
+    clean: bool = False
+    # Legacy fast flag (hidden, for backwards compatibility)
+    fast_flag: bool = False
     # Enable info mode (generate optimization reports and build info)
     info: bool = False
     # Optional path where to save optimization reports and build info
     report: str | None = None
+
+
+def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
+    """Convert argparse namespace to typed CLIArguments."""
+
+    # Combine positional sketches and --src flags
+    src_list: list[str] = []
+    if hasattr(ns, "sketch") and ns.sketch:
+        src_list.extend(ns.sketch)
+    if hasattr(ns, "src") and ns.src:
+        src_list.extend(ns.src)
+
+    # Determine platform targets (default to 'native' if none provided)
+    platforms_list: list[str] = []
+    if hasattr(ns, "platforms") and ns.platforms:
+        platforms_list = ns.platforms
+    else:
+        platforms_list = ["native"]
+
+    return CLIArguments(
+        src=src_list,
+        platforms=platforms_list,
+        cache=getattr(ns, "cache", None),
+        clean=getattr(ns, "clean", False),
+        fast_flag=getattr(ns, "fast_flag", False),
+        info=getattr(ns, "info", False),
+        report=getattr(ns, "report", None),
+    )
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -399,6 +431,9 @@ def _run_cli(arguments: List[str]) -> int:
     parser = _build_argument_parser()
     ns = parser.parse_args(arguments)
 
+    # Parse namespace into typed arguments
+    args = _parse_arguments(ns)
+
     # ------------------------------------------------------------------
     # Derive the *fast* boolean according to the selected build mode.  The
     # precedence order is:
@@ -410,32 +445,19 @@ def _run_cli(arguments: List[str]) -> int:
 
     fast_mode: bool = True  # default – incremental fast builds
 
-    if getattr(ns, "clean", False):
+    if args.clean:
         fast_mode = False
-    elif getattr(ns, "fast_flag", False):
+    elif args.fast_flag:
         fast_mode = True
 
-    # Combine positional sketches and --src flags.
-    src_list: list[str] = []
-    if getattr(ns, "sketch", None):
-        src_list.extend(ns.sketch)
-    if getattr(ns, "src", None):
-        src_list.extend(ns.src)
-
-    if not src_list:
+    if not args.src:
         logger.error(
             "No sketch paths supplied. Provide at least one path or use --help for usage."
         )
         return 1
 
-    # Determine platform targets (default to 'native' if none provided).
-    if getattr(ns, "platforms", None):
-        platforms_list: list[str] = ns.platforms
-    else:
-        platforms_list = ["native"]
-
     # Safety: *fast* mode only makes sense for a single platform & single sketch.
-    if fast_mode and (len(platforms_list) != 1 or len(src_list) != 1):
+    if fast_mode and (len(args.platforms) != 1 or len(args.src) != 1):
         fast_mode = False  # silently fall back to rebuild semantics
 
     # ------------------------------------------------------------------
@@ -444,7 +466,7 @@ def _run_cli(arguments: List[str]) -> int:
     # logic contained so that the rest of the compiler remains unchanged.
     # ------------------------------------------------------------------
 
-    if ns.cache:
+    if args.cache:
 
         def _with_build_cache_dir(base_ini: str | None, cache_dir: str) -> str:
             """Return *base_ini* with a 'build_cache_dir' setting injected.
@@ -498,7 +520,7 @@ def _run_cli(arguments: List[str]) -> int:
 
         from pathlib import Path as _Path
 
-        abs_cache_dir = str(_Path(ns.cache).expanduser().resolve())
+        abs_cache_dir = str(_Path(args.cache).expanduser().resolve())
         # platform.platformio_ini = _with_build_cache_dir(
         #     platform.platformio_ini, abs_cache_dir
         # )
@@ -519,13 +541,13 @@ def _run_cli(arguments: List[str]) -> int:
 
     compilers: list[tuple[str, PioCompiler]] = []
 
-    for plat_name in platforms_list:
+    for plat_name in args.platforms:
         plat_obj = Platform(plat_name)
 
-        if ns.cache:
+        if args.cache:
             from pathlib import Path as _Path
 
-            abs_cache_dir = str(_Path(ns.cache).expanduser().resolve())
+            abs_cache_dir = str(_Path(args.cache).expanduser().resolve())
 
             def _inject_cache(base_ini: str | None) -> str:
                 if base_ini is None:
@@ -549,7 +571,7 @@ def _run_cli(arguments: List[str]) -> int:
         fast_hit: bool | None = None
 
         if fast_mode and cache_manager:
-            src_path = Path(src_list[0]).expanduser().resolve()
+            src_path = Path(args.src[0]).expanduser().resolve()
             cache_entry = cache_manager.get_cache_entry(
                 src_path, plat_name, plat_obj.platformio_ini or ""
             )
@@ -569,8 +591,8 @@ def _run_cli(arguments: List[str]) -> int:
             work_dir=fast_dir if fast_mode else None,
             fast_mode=fast_mode,
             disable_auto_clean=False,
-            force_rebuild=getattr(ns, "clean", False),
-            info_mode=getattr(ns, "info", False),
+            force_rebuild=args.clean,
+            info_mode=args.info,
         )
         init_result = compiler.initialize()
         if not init_result.ok:
@@ -583,8 +605,8 @@ def _run_cli(arguments: List[str]) -> int:
 
         # Get PlatformIO cache directory for banner display
         pio_cache_dir = None
-        if src_list:
-            pio_cache_dir = compiler.get_pio_cache_dir(src_list[0])
+        if args.src:
+            pio_cache_dir = compiler.get_pio_cache_dir(args.src[0])
 
         compilers.append((plat_name, compiler))
 
@@ -594,7 +616,7 @@ def _run_cli(arguments: List[str]) -> int:
                 fast_mode=True,
                 fast_dir=fast_dir,
                 fast_hit=fast_hit,
-                cache_dir=ns.cache,
+                cache_dir=args.cache,
                 clean=False,
                 pio_cache_dir=pio_cache_dir,
             )
@@ -603,13 +625,13 @@ def _run_cli(arguments: List[str]) -> int:
                 fast_mode=False,
                 fast_dir=None,
                 fast_hit=None,
-                cache_dir=ns.cache,
+                cache_dir=args.cache,
                 clean=True,
                 pio_cache_dir=pio_cache_dir,
             )
 
     # Compile for each platform
-    src_paths = [Path(p) for p in src_list]
+    src_paths = [Path(p) for p in args.src]
 
     exit_code = 0
 
@@ -696,17 +718,14 @@ def _run_cli(arguments: List[str]) -> int:
                         logger.warning("Failed to cleanup cache entries: %s", exc)
 
                 # Generate info reports if --info flag was provided or --report was specified
-                if (
-                    getattr(ns, "info", False)
-                    or getattr(ns, "report", None) is not None
-                ):
+                if args.info or args.report is not None:
                     report_dir = None
-                    if getattr(ns, "report", None) is not None:
-                        if ns.report == "":
+                    if args.report is not None:
+                        if args.report == "":
                             # --report flag used without value, use work directory (cache root)
                             report_dir = compiler.work_dir()
                         else:
-                            report_dir = Path(ns.report).expanduser().resolve()
+                            report_dir = Path(args.report).expanduser().resolve()
                         # Ensure the report directory exists
                         report_dir.mkdir(parents=True, exist_ok=True)
                     _print_info_reports(compiler, src_path, plat_name, report_dir)
