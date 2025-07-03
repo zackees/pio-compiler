@@ -21,11 +21,21 @@ extern "C" {
 #define HIGH 0x1
 #define LOW  0x0
 
+#ifndef INPUT
 #define INPUT 0x0
-#define OUTPUT 0x1
-#define INPUT_PULLUP 0x2
+#endif // INPUT
 
+#ifndef OUTPUT
+#define OUTPUT 0x1
+#endif // OUTPUT
+
+#ifndef INPUT_PULLUP    
+#define INPUT_PULLUP 0x2
+#endif // INPUT_PULLUP
+
+#ifndef LED_BUILTIN
 #define LED_BUILTIN 13
+#endif // LED_BUILTIN
 
 #define true 0x1
 #define false 0x0
