@@ -372,10 +372,13 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--report",
         metavar="PATH",
         dest="report",
+        nargs="?",
+        const="",  # Use empty string as const when --report is provided without value
         required=False,
         help=(
-            "Directory where optimization reports and build_info.json should be saved. "
-            "If not specified, reports are saved in the project build directory. "
+            "Generate optimization reports and build_info.json files. "
+            "If PATH is provided, saves reports to that directory. "
+            "If no PATH is provided, saves reports to the work directory (cache root). "
             "Use '.' to save in the current working directory. "
             "Automatically enables --info mode."
         ),
@@ -693,10 +696,17 @@ def _run_cli(arguments: List[str]) -> int:
                         logger.warning("Failed to cleanup cache entries: %s", exc)
 
                 # Generate info reports if --info flag was provided or --report was specified
-                if getattr(ns, "info", False) or getattr(ns, "report", None):
+                if (
+                    getattr(ns, "info", False)
+                    or getattr(ns, "report", None) is not None
+                ):
                     report_dir = None
-                    if getattr(ns, "report", None):
-                        report_dir = Path(ns.report).expanduser().resolve()
+                    if getattr(ns, "report", None) is not None:
+                        if ns.report == "":
+                            # --report flag used without value, use work directory (cache root)
+                            report_dir = compiler.work_dir()
+                        else:
+                            report_dir = Path(ns.report).expanduser().resolve()
                         # Ensure the report directory exists
                         report_dir.mkdir(parents=True, exist_ok=True)
                     _print_info_reports(compiler, src_path, plat_name, report_dir)
