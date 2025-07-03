@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -536,10 +535,36 @@ def _run_cli(arguments: List[str]) -> int:
                 f"  {_YELLOW}{_sym('🗑️', 'X')}{_RESET}  Purging global cache: {_format_path_for_logging(global_cache_root)}"
             )
             try:
-                shutil.rmtree(global_cache_root)
-                print(
-                    f"  {_GREEN}{_sym('✓', 'OK')}{_RESET} Global cache purged successfully"
+                successfully_removed, failed_to_remove = (
+                    global_cache_manager.purge_cache()
                 )
+
+                if successfully_removed:
+                    print(
+                        f"  {_GREEN}{_sym('✓', 'OK')}{_RESET} Global cache purged successfully ({len(successfully_removed)} items removed)"
+                    )
+
+                if failed_to_remove:
+                    print(
+                        f"  {_YELLOW}{_sym('⚠', 'WARN')}{_RESET} Some items could not be removed due to file locks ({len(failed_to_remove)} items):"
+                    )
+                    for item in failed_to_remove[:5]:  # Show first 5 items
+                        print(
+                            f"    {_CYAN}• {_format_path_for_logging(Path(item))}{_RESET}"
+                        )
+                    if len(failed_to_remove) > 5:
+                        print(
+                            f"    {_CYAN}... and {len(failed_to_remove) - 5} more{_RESET}"
+                        )
+                    print(
+                        f"  {_CYAN}{_sym('ℹ', 'i')}{_RESET} Locked files are likely in use by other processes"
+                    )
+
+                if not successfully_removed and not failed_to_remove:
+                    print(
+                        f"  {_CYAN}{_sym('ℹ', 'i')}{_RESET} Global cache was already empty"
+                    )
+
             except Exception as e:
                 print(
                     f"  {_RED}{_sym('✗', 'ERR')}{_RESET} Failed to purge global cache: {e}"

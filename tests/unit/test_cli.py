@@ -65,6 +65,12 @@ class MainTester(TimedTestCase):
             def mock_global_cache_init(self, cache_root=None):
                 self.cache_root = fake_global_cache
 
+            def mock_purge_cache(self):
+                # Mock purge to simulate successful removal
+                if fake_global_cache.exists():
+                    shutil.rmtree(fake_global_cache)
+                return [str(fake_global_cache)], []
+
             def mock_cwd():
                 return temp_path
 
@@ -79,6 +85,7 @@ class MainTester(TimedTestCase):
 
             with (
                 patch.object(GlobalCacheManager, "__init__", mock_global_cache_init),
+                patch.object(GlobalCacheManager, "purge_cache", mock_purge_cache),
                 patch("pio_compiler.cli.Path.cwd", mock_cwd),
                 patch("pio_compiler.cli.cleanup_all", mock_cleanup_all),
             ):

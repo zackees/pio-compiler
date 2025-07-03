@@ -51,39 +51,26 @@ class TurboDependencyManagerTest(TimedTestCase):
         self.assertIn("github.com/arduino-libraries/UnknownLibrary", url)
 
     @patch("pio_compiler.global_cache.urlopen")
-    @patch("pio_compiler.global_cache.zipfile.ZipFile")
-    def test_download_library_success(self, mock_zipfile, mock_urlopen):
+    def test_download_library_success(self, mock_urlopen):
         """Test successful library download and extraction."""
+        # Create a test zip file with proper structure
+        import zipfile
+
+        test_zip_path = self.temp_dir / "test.zip"
+        test_zip_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with zipfile.ZipFile(test_zip_path, "w") as zip_file:
+            zip_file.writestr("fastled-main/", "")
+            zip_file.writestr("fastled-main/library.properties", "name=FastLED")
+            zip_file.writestr("fastled-main/FastLED.h", "// FastLED header")
+
         # Mock the HTTP response
         mock_response = Mock()
-        mock_response.read.return_value = b"fake zip content"
+        mock_response.read.return_value = test_zip_path.read_bytes()
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
-        # Mock zipfile extraction
-        mock_zip = Mock()
-        mock_zipfile.return_value.__enter__.return_value = mock_zip
-
-        # Create a fake extracted directory structure
-        fake_extract_dir = self.temp_dir / "fake_extract"
-        fake_extract_dir.mkdir()
-        fake_lib_dir = fake_extract_dir / "fastled-main"
-        fake_lib_dir.mkdir()
-        (fake_lib_dir / "library.properties").write_text("name=FastLED")
-
-        # Mock the extraction to use our fake directory
-        def mock_extractall(path):
-            import shutil
-
-            shutil.copytree(fake_extract_dir, Path(path) / "fastled-main")
-
-        mock_zip.extractall.side_effect = mock_extractall
-
         # Test download
-        with patch("tempfile.TemporaryDirectory") as mock_tempdir:
-            mock_tempdir.return_value.__enter__.return_value = str(
-                fake_extract_dir.parent
-            )
-            result = self.turbo_manager.download_library("FastLED")
+        result = self.turbo_manager.download_library("FastLED")
 
         self.assertTrue(result.exists())
         self.assertEqual(result.name, "fastled")
