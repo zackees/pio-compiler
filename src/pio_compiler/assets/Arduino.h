@@ -6,6 +6,8 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
+#include <cstdio>
+#include <cstring>
 
 // Serial constants - define early to avoid issues
 #define DEC 10
@@ -138,79 +140,50 @@ public:
     double toFloat() const;
 };
 
-#ifdef __cplusplus
-}
-
-// FastLED compatibility macros
-#ifndef FL_UNUSED
-#define FL_UNUSED(x) ((void)(x))
-#endif
-
-#ifndef FASTLED_UNUSED
-#define FASTLED_UNUSED(x) ((void)(x))
-#endif
-
-// Random functions (C++ overloads outside extern "C")
-long random(long max);
-long random(long min, long max);
-
-// Math functions (templates must be outside extern "C")
-template<typename T> constexpr T min(T a, T b) { return (a < b) ? a : b; }
-template<typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
-template<typename T> constexpr T abs(T x) { return (x > 0) ? x : -x; }
-template<typename T> constexpr T constrain(T amt, T low, T high) { return (amt < low) ? low : ((amt > high) ? high : amt); }
-#else
-#define min(a,b) ((a)<(b)?(a):(b))
-#define max(a,b) ((a)>(b)?(a):(b))
-#define abs(x) ((x)>0?(x):-(x))
-#define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
-#endif
-#define round(x)     ((x)>=0?(long)((x)+0.5):(long)((x)-0.5))
-#define radians(deg) ((deg)*DEG_TO_RAD)
-#define degrees(rad) ((rad)*RAD_TO_DEG)
-#define sq(x) ((x)*(x))
-
-// Constants
-#define PI 3.1415926535897932384626433832795
-#define HALF_PI 1.5707963267948966192313216916398
-#define TWO_PI 6.283185307179586476925286766559
-#define DEG_TO_RAD 0.017453292519943295769236907684886
-#define RAD_TO_DEG 57.295779513082320876798154814105
-
-// Serial class (stub implementation)
+// Serial I/O ------------------------------------------------------------------
 class HardwareSerial {
 public:
-    void begin(unsigned long baud);
-    void end();
-    int available();
-    int read();
-    int peek();
-    void flush();
-    
-    size_t write(uint8_t);
-    size_t write(const char *str);
-    size_t write(const uint8_t *buffer, size_t size);
-    
-    void print(const char[]);
-    void print(char);
-    void print(unsigned char, int = DEC);
-    void print(int, int = DEC);
-    void print(unsigned int, int = DEC);
-    void print(long, int = DEC);
-    void print(unsigned long, int = DEC);
-    void print(double, int = 2);
-    
-    void println(const char[]);
-    void println(char);
-    void println(unsigned char, int = DEC);
-    void println(int, int = DEC);
-    void println(unsigned int, int = DEC);
-    void println(long, int = DEC);
-    void println(unsigned long, int = DEC);
-    void println(double, int = 2);
-    void println(void);
-    
-    operator bool() { return true; }
+    inline void begin(unsigned long /*baud*/) {}
+    inline void end() {}
+    inline int  available() { return 0; }
+    inline int  read() { return -1; }
+    inline int  peek() { return -1; }
+    inline void flush() { std::fflush(stdout); }
+
+    inline size_t write(uint8_t b) {
+        std::fputc(static_cast<int>(b), stdout);
+        return 1;
+    }
+    inline size_t write(const char *str) {
+        if (str) std::fputs(str, stdout);
+        return str ? std::strlen(str) : 0;
+    }
+    inline size_t write(const uint8_t *buf, size_t n) {
+        if (buf) for (size_t i = 0; i < n; ++i) std::fputc(buf[i], stdout);
+        return n;
+    }
+
+    // print / println helpers ------------------------------------------------
+    inline void print(const char s[]) { if (s) std::fputs(s, stdout); }
+    inline void println(const char s[]) { print(s); std::fputc('\n', stdout); }
+
+    inline void print(char c) { std::fputc(c, stdout); }
+    inline void println(char c) { print(c); std::fputc('\n', stdout); }
+
+    inline void print(int n, int base = 10)  { base == 16 ? std::printf("%x", n) : std::printf("%d", n); }
+    inline void print(unsigned int n, int base = 10)  { base == 16 ? std::printf("%x", n) : std::printf("%u", n); }
+    inline void print(long n, int base = 10) { base == 16 ? std::printf("%lx", n) : std::printf("%ld", n); }
+    inline void print(unsigned long n, int base = 10) { base == 16 ? std::printf("%lx", n) : std::printf("%lu", n); }
+    inline void print(double d, int digits = 2) { std::printf("%.*f", digits, d); }
+
+    inline void println(int n, int base = 10)  { print(n, base); std::fputc('\n', stdout); }
+    inline void println(unsigned int n, int base = 10) { print(n, base); std::fputc('\n', stdout); }
+    inline void println(long n, int base = 10) { print(n, base); std::fputc('\n', stdout); }
+    inline void println(unsigned long n, int base = 10) { print(n, base); std::fputc('\n', stdout); }
+    inline void println(double d, int digits = 2) { print(d, digits); std::fputc('\n', stdout); }
+    inline void println() { std::fputc('\n', stdout); }
+
+    inline operator bool() const { return true; }
 };
 
 extern HardwareSerial Serial;
@@ -221,5 +194,9 @@ extern HardwareSerial Serial1;  // For MIDI communication
 #define sei()
 #define interrupts() sei()
 #define noInterrupts() cli()
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ARDUINO_H 
