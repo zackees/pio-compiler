@@ -1,7 +1,14 @@
 #!/bin/bash
 
+# Exit immediately on error.
 set -e
-echo "Running unit tests with uv"
 
-# Ensure uv is installed and run pytest inside the managed virtual environment
-uv run pytest -n auto tests -v --durations=0
+if [[ "$1" == "--full" ]]; then
+  echo "Running full (unit + integration) test-suite with uv"
+  # Execute both unit and integration tests
+  uv run pytest -n auto tests/unit tests/integration -v --durations=0
+else
+  echo "Running unit tests with uv"
+  # Only run the fast unit tests (<5 s) by default
+  uv run pytest -n auto tests/unit -v --durations=0
+fi

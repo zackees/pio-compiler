@@ -9,8 +9,8 @@ from pio_compiler import PioCompiler, Platform
 from pio_compiler.logging_utils import configure_logging
 
 
-class UnoCompileTest(unittest.TestCase):
-    """End-to-end test that ensures a *real* PlatformIO build for the *uno* alias succeeds and produces a non-empty firmware artefact."""
+class Teensy30CompileTest(unittest.TestCase):
+    """End-to-end test that ensures a *real* PlatformIO build for the *teensy30* alias succeeds and produces a non-empty firmware artefact."""
 
     EXAMPLE_PATH = Path("tests/test_data/examples/Blink")
 
@@ -18,16 +18,16 @@ class UnoCompileTest(unittest.TestCase):
     def setUpClass(cls):
         """Set up logging for the test suite."""
         configure_logging()
-        cls.logger = logging.getLogger("UnoCompileTest")
+        cls.logger = logging.getLogger("Teensy30CompileTest")
 
     # ------------------------------------------------------------------
     # Test lifecycle helpers
     # ------------------------------------------------------------------
     def setUp(self) -> None:
         """Create a fresh compiler instance for every test."""
-        self.logger.info("Setting up new test with Uno platform and compiler")
+        self.logger.info("Setting up new test with Teensy30 platform and compiler")
 
-        self.platform = Platform("uno")
+        self.platform = Platform("teensy30")
         self.compiler = PioCompiler(self.platform)
         # Track any spawned subprocesses so that *tearDown* can terminate them if needed.
         self._processes: list["subprocess.Popen"] = []
@@ -64,7 +64,7 @@ class UnoCompileTest(unittest.TestCase):
     # ------------------------------------------------------------------
     # Actual test logic
     # ------------------------------------------------------------------
-    def test_uno_build_creates_valid_firmware_elf(self) -> None:
+    def test_teensy30_build_creates_valid_firmware_elf(self) -> None:
         """Compile the Blink example and verify the *firmware.elf* artefact exists and is non-empty."""
         self.logger.info(f"Starting compilation of example: {self.EXAMPLE_PATH}")
 
@@ -95,7 +95,7 @@ class UnoCompileTest(unittest.TestCase):
             self.EXAMPLE_PATH.stem,
             ".pio",
             "build",
-            "uno",
+            "teensy30",
             "firmware.elf",
         )
         self.logger.info(f"Looking for firmware artifact at: {artefact_path}")
