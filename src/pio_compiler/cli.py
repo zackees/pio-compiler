@@ -491,6 +491,18 @@ def _run_cli(arguments: List[str]) -> int:
         )
         return 1
 
+    # Validate that all source paths exist
+    for src_path in args.src:
+        path = Path(src_path).expanduser().resolve()
+        if not path.exists():
+            logger.error(f"Sketch path does not exist: {src_path}")
+            print(f"[ERROR] Sketch path does not exist: {src_path}")
+            return 1
+        if not path.is_dir() and not path.is_file():
+            logger.error(f"Sketch path is not a valid file or directory: {src_path}")
+            print(f"[ERROR] Sketch path is not a valid file or directory: {src_path}")
+            return 1
+
     # Safety: *fast* mode only makes sense for a single platform & single sketch.
     if fast_mode and (len(args.platforms) != 1 or len(args.src) != 1):
         fast_mode = False  # silently fall back to rebuild semantics

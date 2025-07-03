@@ -19,7 +19,7 @@ class CliFailureTest(TimedTestCase):
         project_root = Path(__file__).resolve().parent.parent.parent
         nonexistent_path = "tests/test_data/examples/NonexistentProject"
 
-        cmd = f"uv run pic --native {nonexistent_path}"
+        cmd = f"uv run tpo --native {nonexistent_path}"
 
         result = subprocess.run(
             cmd,
@@ -36,12 +36,8 @@ class CliFailureTest(TimedTestCase):
 
         # Check that the error message is helpful and explains what went wrong
         combined_output = result.stdout + result.stderr
-        self.assertIn("Example path does not exist", combined_output)
-        self.assertIn(
-            "Expected: Either a directory containing .ino files", combined_output
-        )
-        self.assertIn("Point to a directory:", combined_output)
-        self.assertIn("Point to a single file:", combined_output)
+        self.assertIn("Sketch path does not exist", combined_output)
+        self.assertIn(nonexistent_path, combined_output)
 
     def test_directory_without_ino_files_error_message(self) -> None:
         """Test that attempting to compile a directory without .ino files produces a helpful error message."""
@@ -50,7 +46,7 @@ class CliFailureTest(TimedTestCase):
         # Use the tests directory itself, which doesn't contain .ino files
         test_dir = "tests/unit"
 
-        cmd = f"uv run pic --native {test_dir}"
+        cmd = f"uv run tpo --native {test_dir}"
 
         result = subprocess.run(
             cmd,
