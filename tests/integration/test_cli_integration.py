@@ -36,7 +36,9 @@ class CliAlternativeSyntaxTest(unittest.TestCase):
     def test_example_first_invocation(self) -> None:
         """Run the CLI via the *console-script* entry point using the alternative syntax and a *full* shell command string."""
 
-        project_root = Path(__file__).resolve().parent.parent
+        # Change to the repository root so that the relative example path
+        # resolves correctly during the test run.
+        project_root = Path(__file__).resolve().parent.parent.parent
 
         # Call the *console-script* entry point that is installed via
         # ``[project.scripts]`` in *pyproject.toml*.  Using the actual shell

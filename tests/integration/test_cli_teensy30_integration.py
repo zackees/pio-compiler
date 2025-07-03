@@ -31,7 +31,7 @@ class CliTeensy30AlternativeSyntaxTest(unittest.TestCase):
     def test_teensy30_example_first_invocation(self) -> None:
         """Run the CLI via the *console-script* entry point using the alternative syntax."""
 
-        project_root = Path(__file__).resolve().parent.parent
+        project_root = Path(__file__).resolve().parent.parent.parent
 
         cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --teensy30"
 
