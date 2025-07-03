@@ -151,13 +151,14 @@ class PioCompilerImpl:
             return None
 
     def generate_optimization_report(
-        self, project_dir: Path, example_path: Path
+        self, project_dir: Path, example_path: Path, output_dir: Path | None = None
     ) -> Path | None:
         """Generate PlatformIO optimization report and return the path to the report file.
 
         Args:
             project_dir: The PlatformIO project directory
             example_path: The source example path
+            output_dir: Optional directory where to save the report. If None, saves to project_dir
 
         Returns:
             Path to the optimization report file or None if generation failed
@@ -167,7 +168,9 @@ class PioCompilerImpl:
             report_name = (
                 f"optimization_report_{self.platform.name}_{example_path.stem}.txt"
             )
-            report_path = project_dir / report_name
+            # Use custom output directory if provided, otherwise use project directory
+            report_base_dir = output_dir if output_dir is not None else project_dir
+            report_path = report_base_dir / report_name
 
             # Run PlatformIO with verbose output to capture memory usage
             pio_executable = shutil.which("platformio")
@@ -268,7 +271,11 @@ class PioCompilerImpl:
             return None
 
     def generate_build_info(
-        self, project_dir: Path, example_path: Path, build_start_time: float
+        self,
+        project_dir: Path,
+        example_path: Path,
+        build_start_time: float,
+        output_dir: Path | None = None,
     ) -> Path | None:
         """Generate build_info.json file with comprehensive build information.
 
@@ -276,6 +283,7 @@ class PioCompilerImpl:
             project_dir: The PlatformIO project directory
             example_path: The source example path
             build_start_time: Unix timestamp when build started
+            output_dir: Optional directory where to save the file. If None, saves to project_dir
 
         Returns:
             Path to the build_info.json file or None if generation failed
@@ -284,7 +292,9 @@ class PioCompilerImpl:
             import json
             from datetime import datetime
 
-            build_info_path = project_dir / "build_info.json"
+            # Use custom output directory if provided, otherwise use project directory
+            report_base_dir = output_dir if output_dir is not None else project_dir
+            build_info_path = report_base_dir / "build_info.json"
             build_end_time = time.time()
 
             # Collect build information

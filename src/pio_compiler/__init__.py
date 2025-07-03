@@ -97,17 +97,23 @@ class PioCompiler:
         return self.__impl.get_pio_cache_dir(example)
 
     def generate_optimization_report(
-        self, project_dir: Path, example_path: Path
+        self, project_dir: Path, example_path: Path, output_dir: Path | None = None
     ) -> Path | None:
         """Generate optimization report and return the path to the report file."""
-        return self.__impl.generate_optimization_report(project_dir, example_path)
+        return self.__impl.generate_optimization_report(
+            project_dir, example_path, output_dir
+        )
 
     def generate_build_info(
-        self, project_dir: Path, example_path: Path, build_start_time: float
+        self,
+        project_dir: Path,
+        example_path: Path,
+        build_start_time: float,
+        output_dir: Path | None = None,
     ) -> Path | None:
         """Generate build_info.json file and return the path to the file."""
         return self.__impl.generate_build_info(
-            project_dir, example_path, build_start_time
+            project_dir, example_path, build_start_time, output_dir
         )
 
     @property

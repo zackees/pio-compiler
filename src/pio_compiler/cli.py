@@ -159,7 +159,10 @@ def _print_startup_banner(
 
 
 def _print_info_reports(
-    compiler: PioCompiler, src_path: Path, platform_name: str
+    compiler: PioCompiler,
+    src_path: Path,
+    platform_name: str,
+    report_dir: Path | None = None,
 ) -> None:
     """Print npm-style info about generated optimization reports and build info."""
 
@@ -176,11 +179,13 @@ def _print_info_reports(
     build_start_time = time.time()
 
     # Generate optimization report
-    opt_report_path = compiler.generate_optimization_report(project_dir, src_path)
+    opt_report_path = compiler.generate_optimization_report(
+        project_dir, src_path, report_dir
+    )
 
     # Generate build info
     build_info_path = compiler.generate_build_info(
-        project_dir, src_path, build_start_time
+        project_dir, src_path, build_start_time, report_dir
     )
 
     # Print npm-style output
@@ -226,6 +231,8 @@ class CLIArguments:
     fast: bool = False
     # Enable info mode (generate optimization reports and build info)
     info: bool = False
+    # Optional path where to save optimization reports and build info
+    report: str | None = None
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -333,6 +340,20 @@ def _build_argument_parser() -> argparse.ArgumentParser:
             "Generate optimization reports and build_info.json files. "
             "This includes memory usage analysis, compilation statistics, "
             "and build information similar to npm build outputs."
+        ),
+    )
+
+    # Report directory for saving optimization reports and build info
+    parser.add_argument(
+        "--report",
+        metavar="PATH",
+        dest="report",
+        required=False,
+        help=(
+            "Directory where optimization reports and build_info.json should be saved. "
+            "If not specified, reports are saved in the project build directory. "
+            "Use '.' to save in the current working directory. "
+            "Automatically enables --info mode."
         ),
     )
 
@@ -647,9 +668,14 @@ def _run_cli(arguments: List[str]) -> int:
                     except Exception as exc:  # pragma: no cover – best-effort
                         logger.warning("Failed to cleanup cache entries: %s", exc)
 
-                # Generate info reports if --info flag was provided
-                if getattr(ns, "info", False):
-                    _print_info_reports(compiler, src_path, plat_name)
+                # Generate info reports if --info flag was provided or --report was specified
+                if getattr(ns, "info", False) or getattr(ns, "report", None):
+                    report_dir = None
+                    if getattr(ns, "report", None):
+                        report_dir = Path(ns.report).expanduser().resolve()
+                        # Ensure the report directory exists
+                        report_dir.mkdir(parents=True, exist_ok=True)
+                    _print_info_reports(compiler, src_path, plat_name, report_dir)
 
     return exit_code
 
