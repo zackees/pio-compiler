@@ -75,7 +75,6 @@ lib_deps =
 
 build_flags =
     -DFASTLED_STUB_IMPL
-    -DFASTLED_STUB_MAIN_INCLUDE_INO=\"../examples/Blink/Blink.ino\"
     -std=c++17
 """
 
