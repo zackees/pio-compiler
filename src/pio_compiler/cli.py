@@ -188,6 +188,21 @@ def _print_info_reports(
         project_dir, src_path, build_start_time, report_dir
     )
 
+    # Save platformio.ini as platformio.ini.tpo when --report is specified
+    platformio_ini_path = None
+    if report_dir is not None:
+        platformio_ini_source = project_dir / "platformio.ini"
+        if platformio_ini_source.exists():
+            try:
+                platformio_ini_dest = report_dir / "platformio.ini.tpo"
+                import shutil
+
+                shutil.copy(platformio_ini_source, platformio_ini_dest)
+                platformio_ini_path = platformio_ini_dest
+                logger.debug(f"Saved platformio.ini to: {platformio_ini_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save platformio.ini.tpo: {e}")
+
     # Print npm-style output
     header = f"{_BOLD}{_CYAN}build info{_RESET}"
     print(f"\n{header}")
@@ -207,6 +222,15 @@ def _print_info_reports(
         print(f"  {_GREEN}[x]{_RESET} build_info: {_YELLOW}{formatted_path}{_RESET}")
     else:
         print(f"  {_YELLOW}[ ]{_RESET} build_info: generation failed")
+
+    # Show platformio.ini.tpo
+    if platformio_ini_path:
+        formatted_path = _format_path_for_logging(platformio_ini_path)
+        print(
+            f"  {_GREEN}[x]{_RESET} platformio.ini.tpo: {_YELLOW}{formatted_path}{_RESET}"
+        )
+    elif report_dir is not None:
+        print(f"  {_YELLOW}[ ]{_RESET} platformio.ini.tpo: platformio.ini not found")
 
     print()  # Trailing newline
 
