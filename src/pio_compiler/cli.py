@@ -61,7 +61,7 @@ def _run_cli(arguments: List[str]) -> int:
         )
         return 1
 
-    # Compile requested examples.
+    # Compile requested examples
     streams = compiler.multi_compile(ns.src)
 
     exit_code = 0
@@ -70,7 +70,7 @@ def _run_cli(arguments: List[str]) -> int:
 
         # Consume stream output until completion.
         accumulated: list[str] = []
-        while stream.is_done():
+        while not stream.is_done():
             line = stream.readline(timeout=0.1)
             if line is None:
                 # No new data yet – continue polling.
