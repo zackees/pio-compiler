@@ -417,8 +417,8 @@ def _run_cli(arguments: List[str]) -> int:
             # Cache already exists – single concise line.
             print(f"[FAST] Using cache directory: {fast_dir}")
         else:
-            # Cold start – inform user we're creating the directory and then continue.
-            print(f"[FAST] Cache miss – creating cache directory: {fast_dir}")
+            # Cold start – inform user without duplicating the full path.
+            print("[FAST] Cache miss – creating cache directory…")
             fast_dir.mkdir(parents=True, exist_ok=True)
             print(f"[FAST] Using cache directory: {fast_dir}")
 
