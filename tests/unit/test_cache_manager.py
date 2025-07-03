@@ -1,6 +1,5 @@
 """Unit tests for the cache manager module."""
 
-import json
 import shutil
 import tempfile
 import unittest
@@ -22,18 +21,30 @@ class CacheManagerTest(unittest.TestCase):
         self.source_dir.mkdir()
         (self.source_dir / "test.ino").write_text("// test sketch")
 
+        # Sample platformio.ini content for testing
+        self.test_platformio_ini = """[platformio]
+src_dir = src
+
+[env:dev]
+platform = platformio/native
+lib_deps = FastLED
+"""
+
     def tearDown(self) -> None:
         """Clean up test environment."""
         if self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
 
     def test_cache_entry_creation(self):
-        """Test creating a cache entry with human-readable name."""
-        entry = self.cache_manager.get_cache_entry(self.source_dir, "native")
+        """Test creating a cache entry with platform-fingerprint name."""
+        entry = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
 
-        # Check that the name is human-readable
-        self.assertEqual(entry.name, "test_project-native")
-        self.assertEqual(entry.project_name, "test_project")
+        # Check that the name follows platform-fingerprint pattern
+        self.assertTrue(entry.name.startswith("native-"))
+        self.assertEqual(len(entry.name.split("-")), 2)
+        self.assertEqual(len(entry.name.split("-")[1]), 8)  # 8-character fingerprint
         self.assertEqual(entry.platform, "native")
 
         # Check that the cache directory was created
@@ -42,105 +53,180 @@ class CacheManagerTest(unittest.TestCase):
 
     def test_cache_entry_metadata(self):
         """Test that cache metadata is properly saved and loaded."""
-        entry = self.cache_manager.get_cache_entry(self.source_dir, "uno")
+        entry = self.cache_manager.get_cache_entry(
+            self.source_dir, "uno", self.test_platformio_ini
+        )
 
         # Check metadata was saved
         metadata = entry.load_metadata()
-        self.assertEqual(metadata["project_name"], "test_project")
         self.assertEqual(metadata["platform"], "uno")
         self.assertEqual(metadata["source_path"], str(self.source_dir))
+        self.assertIn("fingerprint", metadata)
+        self.assertIn("platformio_ini_hash", metadata)
         self.assertIn("created_at", metadata)
         self.assertIn("last_accessed", metadata)
 
     def test_cache_hit_detection(self):
         """Test that cache hits are properly detected."""
         # First access - should be a miss
-        entry1 = self.cache_manager.get_cache_entry(self.source_dir, "native")
+        entry1 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
         self.assertTrue(entry1.exists)  # exists after creation
 
         # Second access - should be a hit
-        entry2 = self.cache_manager.get_cache_entry(self.source_dir, "native")
+        entry2 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
         self.assertTrue(entry2.exists)
         self.assertEqual(entry1.cache_dir, entry2.cache_dir)
 
     def test_different_platforms_different_cache(self):
         """Test that different platforms get different cache directories."""
-        entry_native = self.cache_manager.get_cache_entry(self.source_dir, "native")
-        entry_uno = self.cache_manager.get_cache_entry(self.source_dir, "uno")
+        entry_native = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+        entry_uno = self.cache_manager.get_cache_entry(
+            self.source_dir, "uno", self.test_platformio_ini
+        )
 
         self.assertNotEqual(entry_native.cache_dir, entry_uno.cache_dir)
-        self.assertEqual(entry_native.name, "test_project-native")
-        self.assertEqual(entry_uno.name, "test_project-uno")
+        self.assertTrue(entry_native.name.startswith("native-"))
+        self.assertTrue(entry_uno.name.startswith("uno-"))
+
+    def test_different_platformio_content_different_cache(self):
+        """Test that different platformio.ini content gets different cache directories."""
+        different_ini = """[platformio]
+src_dir = src
+
+[env:dev]
+platform = atmelavr
+board = uno
+lib_deps = FastLED
+"""
+
+        entry1 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+        entry2 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", different_ini
+        )
+
+        # Should have different fingerprints due to different content
+        self.assertNotEqual(entry1.cache_dir, entry2.cache_dir)
+        self.assertNotEqual(entry1.fingerprint, entry2.fingerprint)
+
+    def test_cache_invalidation_on_content_change(self):
+        """Test that cache is invalidated when platformio.ini content changes."""
+        # Create initial cache entry
+        entry1 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+        old_cache_dir = entry1.cache_dir
+
+        # Modify platformio.ini content
+        modified_ini = self.test_platformio_ini + "\nbuild_flags = -DTEST"
+
+        # Should get a different cache entry
+        entry2 = self.cache_manager.get_cache_entry(
+            self.source_dir, "native", modified_ini
+        )
+
+        self.assertNotEqual(old_cache_dir, entry2.cache_dir)
+        self.assertNotEqual(entry1.fingerprint, entry2.fingerprint)
+
+    def test_fingerprint_generation(self):
+        """Test that fingerprint generation is consistent and follows expected format."""
+        fingerprint1 = self.cache_manager._generate_fingerprint(
+            self.test_platformio_ini
+        )
+        fingerprint2 = self.cache_manager._generate_fingerprint(
+            self.test_platformio_ini
+        )
+
+        # Should be consistent
+        self.assertEqual(fingerprint1, fingerprint2)
+
+        # Should be 8 characters of hex
+        self.assertEqual(len(fingerprint1), 8)
+        self.assertTrue(all(c in "0123456789abcdef" for c in fingerprint1))
+
+        # Different content should give different fingerprint
+        different_content = self.test_platformio_ini + "\n# comment"
+        fingerprint3 = self.cache_manager._generate_fingerprint(different_content)
+        self.assertNotEqual(fingerprint1, fingerprint3)
 
     def test_invalid_name_validation(self):
         """Test that invalid names raise InvalidCacheNameError."""
-        # Test invalid characters in project name
+        # Test invalid characters in platform name
         with self.assertRaises(InvalidCacheNameError) as context:
-            # Create a temp directory with a valid name first
-            valid_dir = self.temp_dir / "valid_project"
-            valid_dir.mkdir()
-            # Try to use it with an invalid platform name containing <>
-            self.cache_manager.get_cache_entry(valid_dir, "platform<>name")
+            self.cache_manager.get_cache_entry(
+                self.source_dir, "platform<>name", self.test_platformio_ini
+            )
 
         self.assertIn("invalid characters", str(context.exception))
 
         # Test reserved Windows names
-        valid_dir2 = self.temp_dir / "another_project"
-        valid_dir2.mkdir()
         with self.assertRaises(InvalidCacheNameError) as context:
-            self.cache_manager.get_cache_entry(valid_dir2, "CON")
+            self.cache_manager.get_cache_entry(
+                self.source_dir, "CON", self.test_platformio_ini
+            )
 
         self.assertIn("reserved name", str(context.exception))
 
         # Test empty names
-        valid_dir3 = self.temp_dir / "third_project"
-        valid_dir3.mkdir()
         with self.assertRaises(InvalidCacheNameError) as context:
-            self.cache_manager.get_cache_entry(valid_dir3, "")
+            self.cache_manager.get_cache_entry(
+                self.source_dir, "", self.test_platformio_ini
+            )
 
         self.assertIn("empty", str(context.exception))
 
     def test_name_pre_sanitization(self):
         """Test that valid names with minor issues are pre-sanitized successfully."""
         # Test that spaces and common separators are replaced with underscores
-        valid_dir = self.temp_dir / "my project"  # spaces in directory name
-        valid_dir.mkdir()
+        entry = self.cache_manager.get_cache_entry(
+            self.source_dir, "my platform", self.test_platformio_ini
+        )
 
-        entry = self.cache_manager.get_cache_entry(valid_dir, "my platform")
-
-        # Should have underscores instead of spaces
-        self.assertEqual(entry.name, "my_project-my_platform")
+        # Should have underscores instead of spaces in platform name
+        self.assertTrue(entry.name.startswith("my_platform-"))
         self.assertTrue(entry.cache_dir.exists())
 
     def test_list_cache_entries(self):
         """Test listing all cache entries."""
         # Create several cache entries
-        self.cache_manager.get_cache_entry(self.source_dir, "native")
-        self.cache_manager.get_cache_entry(self.source_dir, "uno")
+        self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+        self.cache_manager.get_cache_entry(
+            self.source_dir, "uno", self.test_platformio_ini
+        )
 
         source2 = self.temp_dir / "other_project"
         source2.mkdir()
-        self.cache_manager.get_cache_entry(source2, "teensy30")
+        self.cache_manager.get_cache_entry(
+            source2, "teensy30", self.test_platformio_ini
+        )
 
         entries = self.cache_manager.list_cache_entries()
         self.assertEqual(len(entries), 3)
 
-        entry_names = {entry.name for entry in entries}
-        expected_names = {
-            "test_project-native",
-            "test_project-uno",
-            "other_project-teensy30",
-        }
-        self.assertEqual(entry_names, expected_names)
+        # Check that entries have expected platforms
+        platforms = {entry.platform for entry in entries}
+        expected_platforms = {"native", "uno", "teensy30"}
+        self.assertEqual(platforms, expected_platforms)
 
     def test_cleanup_old_entries(self):
         """Test cleanup of old cache entries."""
-        # Create several cache entries
+        # Create several cache entries with different platformio.ini content to ensure different fingerprints
         entries = []
         for i in range(5):
             source = self.temp_dir / f"project_{i}"
             source.mkdir()
-            entry = self.cache_manager.get_cache_entry(source, "native")
+            # Make each entry unique by adding a comment with the index
+            unique_ini = self.test_platformio_ini + f"\n; Project {i} specific comment"
+            entry = self.cache_manager.get_cache_entry(source, "native", unique_ini)
             entries.append(entry)
 
         # Verify all entries exist
@@ -154,41 +240,64 @@ class CacheManagerTest(unittest.TestCase):
         self.assertEqual(len(remaining_entries), 3)
 
     def test_migrate_old_cache_entries(self):
-        """Test migration of old hash-based cache directories."""
-        # Create a fake old-style cache directory
-        old_cache_dir = self.cache_manager.cache_root / "bd255b826d41"
+        """Test migration removes old-format cache directories."""
+        # Create a fake old .tpo_fast_cache directory
+        old_cache_root = self.cache_manager.cache_root.parent / ".tpo_fast_cache"
+        old_cache_root.mkdir()
+        old_project_dir = old_cache_root / "TestProject-native"
+        old_project_dir.mkdir()
+        (old_project_dir / "test.txt").write_text("old cache content")
+
+        # Create a fake old-style cache directory in new location
+        old_cache_dir = self.cache_manager.cache_root / "TestProject-native"
         old_cache_dir.mkdir(parents=True)
-
-        # Create some fake project structure in the old cache
-        project_dir = old_cache_dir / "TestProject"
-        project_dir.mkdir()
-        (project_dir / "TestProject.ino").write_text("// test")
-
-        # Create PlatformIO build structure to indicate platform
-        pio_build_dir = old_cache_dir / ".pio" / "build" / "native"
-        pio_build_dir.mkdir(parents=True)
+        (old_cache_dir / "test.txt").write_text("old format cache")
 
         # Run migration
         self.cache_manager.migrate_old_cache_entries()
 
-        # Check that old directory was renamed to new format
+        # Check that old .tpo_fast_cache directory was removed
+        self.assertFalse(old_cache_root.exists())
+
+        # Check that old format cache in new location was removed
         self.assertFalse(old_cache_dir.exists())
-        new_cache_dir = self.cache_manager.cache_root / "TestProject-native"
-        self.assertTrue(new_cache_dir.exists())
 
-        # Check that metadata was created
-        metadata_file = new_cache_dir / ".cache_metadata.json"
-        self.assertTrue(metadata_file.exists())
+    def test_looks_like_fingerprint_format(self):
+        """Test the fingerprint format detection helper."""
+        # Valid fingerprint format
+        self.assertTrue(
+            self.cache_manager._looks_like_fingerprint_format("native-a1b2c3d4")
+        )
+        self.assertTrue(
+            self.cache_manager._looks_like_fingerprint_format("uno-12345678")
+        )
 
-        metadata = json.loads(metadata_file.read_text())
-        self.assertEqual(metadata["project_name"], "TestProject")
-        self.assertEqual(metadata["platform"], "native")
+        # Invalid fingerprint format
+        self.assertFalse(
+            self.cache_manager._looks_like_fingerprint_format("TestProject-native")
+        )
+        self.assertFalse(
+            self.cache_manager._looks_like_fingerprint_format("native-toolong")
+        )
+        self.assertFalse(
+            self.cache_manager._looks_like_fingerprint_format("native-short")
+        )
+        self.assertFalse(
+            self.cache_manager._looks_like_fingerprint_format("native-xyz123gh")
+        )  # non-hex chars
+        self.assertFalse(
+            self.cache_manager._looks_like_fingerprint_format("just-one-part")
+        )
 
     def test_cleanup_all(self):
         """Test cleanup of all cache entries."""
         # Create some cache entries
-        self.cache_manager.get_cache_entry(self.source_dir, "native")
-        self.cache_manager.get_cache_entry(self.source_dir, "uno")
+        self.cache_manager.get_cache_entry(
+            self.source_dir, "native", self.test_platformio_ini
+        )
+        self.cache_manager.get_cache_entry(
+            self.source_dir, "uno", self.test_platformio_ini
+        )
 
         # Verify cache directory exists and has content
         self.assertTrue(self.cache_manager.cache_root.exists())

@@ -402,7 +402,9 @@ def _run_cli(arguments: List[str]) -> int:
 
         if fast_mode and cache_manager:
             src_path = Path(src_list[0]).expanduser().resolve()
-            cache_entry = cache_manager.get_cache_entry(src_path, plat_name)
+            cache_entry = cache_manager.get_cache_entry(
+                src_path, plat_name, plat_obj.platformio_ini or ""
+            )
 
             fast_dir = cache_entry.cache_dir
             fast_hit = cache_entry.exists

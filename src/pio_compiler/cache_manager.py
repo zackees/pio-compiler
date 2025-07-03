@@ -1,14 +1,14 @@
 """pio_compiler.cache_manager – Smart cache directory management.
 
-This module provides proper cache management with human-readable directory names
-instead of cryptic hashes. It replaces the dependency on TemporaryDirectory
+This module provides proper cache management with fingerprint-based directory names
+based on the platformio.ini file content. It replaces the dependency on TemporaryDirectory
 and gives us full control over cache organization and cleanup.
 
 The cache structure is:
-.tpo_fast_cache/
-  ├── Blink-native/           # {project_name}-{platform}
-  ├── Blur-uno/
-  └── LuminescentGrand-teensy30/
+.tpo/
+  ├── native-a03a3ffa/           # {platform}-{fingerprint:8}
+  ├── uno-b4f2e8cd/
+  └── teensy30-c9d1a7ef/
 
 Each cache directory contains:
   - The compiled project files
@@ -18,6 +18,7 @@ Each cache directory contains:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -44,18 +45,24 @@ class CacheEntry:
     """Represents a single cache entry with metadata."""
 
     def __init__(
-        self, cache_dir: Path, project_name: str, platform: str, source_path: Path
+        self,
+        cache_dir: Path,
+        platform: str,
+        fingerprint: str,
+        source_path: Path,
+        platformio_ini_content: str,
     ):
         self.cache_dir = cache_dir
-        self.project_name = project_name
         self.platform = platform
+        self.fingerprint = fingerprint
         self.source_path = source_path
+        self.platformio_ini_content = platformio_ini_content
         self.metadata_file = cache_dir / ".cache_metadata.json"
 
     @property
     def name(self) -> str:
-        """Human-readable cache directory name."""
-        return f"{self.project_name}-{self.platform}"
+        """Cache directory name with platform-fingerprint pattern."""
+        return f"{self.platform}-{self.fingerprint}"
 
     @property
     def exists(self) -> bool:
@@ -65,9 +72,12 @@ class CacheEntry:
     def save_metadata(self) -> None:
         """Save cache metadata to disk."""
         metadata = {
-            "project_name": self.project_name,
             "platform": self.platform,
+            "fingerprint": self.fingerprint,
             "source_path": str(self.source_path),
+            "platformio_ini_hash": hashlib.sha256(
+                self.platformio_ini_content.encode()
+            ).hexdigest(),
             "created_at": time.time(),
             "last_accessed": time.time(),
         }
@@ -95,54 +105,92 @@ class CacheEntry:
             metadata["last_accessed"] = time.time()
             self.metadata_file.write_text(json.dumps(metadata, indent=2))
 
+    def is_valid_for_platformio_content(self, platformio_ini_content: str) -> bool:
+        """Check if this cache entry is still valid for the given platformio.ini content."""
+        if not self.exists:
+            return False
+
+        metadata = self.load_metadata()
+        stored_hash = metadata.get("platformio_ini_hash", "")
+        current_hash = hashlib.sha256(platformio_ini_content.encode()).hexdigest()
+
+        return stored_hash == current_hash
+
 
 class CacheManager:
-    """Manages the fast cache directory structure with human-readable names."""
+    """Manages the fast cache directory structure with platform-fingerprint names."""
 
     def __init__(self, cache_root: Optional[Path] = None):
         """Initialize the cache manager.
 
         Args:
-            cache_root: Root directory for cache. Defaults to .tpo_fast_cache in current directory.
+            cache_root: Root directory for cache. Defaults to .tpo in current directory.
         """
-        self.cache_root = cache_root or (Path.cwd() / ".tpo_fast_cache")
+        self.cache_root = cache_root or (Path.cwd() / ".tpo")
         self.cache_root.mkdir(exist_ok=True)
 
-    def get_cache_entry(self, source_path: Path, platform: str) -> CacheEntry:
-        """Get a cache entry for the given source and platform.
+    def get_cache_entry(
+        self, source_path: Path, platform: str, platformio_ini_content: str
+    ) -> CacheEntry:
+        """Get a cache entry for the given source, platform, and platformio.ini content.
 
         Args:
             source_path: Path to the source project
             platform: Target platform name (e.g., 'native', 'uno', 'teensy30')
+            platformio_ini_content: Content of the platformio.ini file
 
         Returns:
-            CacheEntry instance with human-readable directory name
+            CacheEntry instance with platform-fingerprint directory name
 
         Raises:
-            InvalidCacheNameError: If the project name or platform contains invalid characters
+            InvalidCacheNameError: If the platform contains invalid characters
         """
-        project_name = source_path.stem
-
-        # Pre-sanitize names before validation to ensure they're filesystem-safe
-        safe_project_name = self._pre_sanitize_name(project_name)
+        # Pre-sanitize platform name before validation to ensure it's filesystem-safe
         safe_platform = self._pre_sanitize_name(platform)
 
-        # Validate that the sanitized names are acceptable
-        self._validate_name(safe_project_name, "project name")
+        # Validate that the sanitized platform name is acceptable
         self._validate_name(safe_platform, "platform")
 
-        cache_dir_name = f"{safe_project_name}-{safe_platform}"
+        # Generate fingerprint from platformio.ini content
+        fingerprint = self._generate_fingerprint(platformio_ini_content)
+
+        cache_dir_name = f"{safe_platform}-{fingerprint}"
         cache_dir = self.cache_root / cache_dir_name
 
-        entry = CacheEntry(cache_dir, safe_project_name, safe_platform, source_path)
+        entry = CacheEntry(
+            cache_dir, safe_platform, fingerprint, source_path, platformio_ini_content
+        )
 
         # If this is a new entry or we're accessing an existing one, save/update metadata
         if not entry.exists:
             entry.save_metadata()
         else:
-            entry.touch_access_time()
+            # Verify the cache is still valid for the current platformio.ini content
+            if entry.is_valid_for_platformio_content(platformio_ini_content):
+                entry.touch_access_time()
+            else:
+                # Content has changed, invalidate and recreate
+                logger.info(
+                    f"platformio.ini content changed, invalidating cache: {entry.name}"
+                )
+                self._remove_cache_entry(entry)
+                entry.save_metadata()
 
         return entry
+
+    def _generate_fingerprint(self, platformio_ini_content: str) -> str:
+        """Generate an 8-character fingerprint from platformio.ini content.
+
+        Args:
+            platformio_ini_content: Content of the platformio.ini file
+
+        Returns:
+            8-character hexadecimal fingerprint
+        """
+        # Create SHA256 hash of the content
+        hash_obj = hashlib.sha256(platformio_ini_content.encode("utf-8"))
+        # Take first 8 characters of the hex digest
+        return hash_obj.hexdigest()[:8]
 
     def list_cache_entries(self) -> list[CacheEntry]:
         """List all cache entries in the cache root."""
@@ -160,12 +208,11 @@ class CacheManager:
             try:
                 metadata = json.loads(metadata_file.read_text())
                 source_path = Path(metadata.get("source_path", ""))
-                project_name = metadata.get(
-                    "project_name", cache_dir.name.split("-")[0]
-                )
                 platform = metadata.get("platform", "unknown")
+                fingerprint = metadata.get("fingerprint", cache_dir.name.split("-")[-1])
 
-                entry = CacheEntry(cache_dir, project_name, platform, source_path)
+                # We don't have the platformio_ini_content here, so use empty string
+                entry = CacheEntry(cache_dir, platform, fingerprint, source_path, "")
                 entries.append(entry)
             except (json.JSONDecodeError, OSError, KeyError) as e:
                 logger.warning(f"Failed to load cache entry from {cache_dir}: {e}")
@@ -214,14 +261,27 @@ class CacheManager:
             shutil.rmtree(self.cache_root)
 
     def migrate_old_cache_entries(self) -> None:
-        """Migrate old hash-based cache directories to new human-readable names.
+        """Migrate old cache directories to new platform-fingerprint format.
 
         This helps users transition from the old system to the new one.
         """
         if not self.cache_root.exists():
             return
 
-        # Look for directories that look like old hash-based names
+        # Also check for old .tpo_fast_cache directory and migrate it
+        old_cache_root = self.cache_root.parent / ".tpo_fast_cache"
+        if old_cache_root.exists():
+            logger.info(f"Found old cache directory: {old_cache_root}")
+            logger.info(
+                "Migrating from .tpo_fast_cache to .tpo format requires rebuilding cache"
+            )
+            # Since we can't determine platformio.ini content from old cache, we'll just remove it
+            shutil.rmtree(old_cache_root, ignore_errors=True)
+            logger.info(
+                "Old cache directory removed - new builds will create fresh cache entries"
+            )
+
+        # Look for directories that look like old project-platform names
         for cache_dir in self.cache_root.iterdir():
             if not cache_dir.is_dir():
                 continue
@@ -230,42 +290,25 @@ class CacheManager:
             if (cache_dir / ".cache_metadata.json").exists():
                 continue
 
-            # Check if this looks like an old hash-based directory (hex characters, 12 chars)
+            # Check if this looks like an old project-platform directory
             dir_name = cache_dir.name
-            if len(dir_name) == 12 and all(
-                c in "0123456789abcdef" for c in dir_name.lower()
-            ):
+            if "-" in dir_name and not self._looks_like_fingerprint_format(dir_name):
                 logger.info(f"Found old-style cache directory: {dir_name}")
+                # Remove old format cache since we can't migrate without platformio.ini content
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                logger.info(f"Removed old cache directory: {dir_name}")
 
-                # Try to determine what project this was for by looking at the contents
-                project_name = self._guess_project_name_from_cache(cache_dir)
-                platform = self._guess_platform_from_cache(cache_dir)
+    def _looks_like_fingerprint_format(self, dir_name: str) -> bool:
+        """Check if a directory name looks like the new platform-fingerprint format."""
+        parts = dir_name.split("-")
+        if len(parts) != 2:
+            return False
 
-                if project_name and platform:
-                    # Create a new entry with the guessed information
-                    new_name = f"{project_name}-{platform}"
-                    new_cache_dir = self.cache_root / new_name
-
-                    if not new_cache_dir.exists():
-                        logger.info(f"Migrating {dir_name} -> {new_name}")
-                        cache_dir.rename(new_cache_dir)
-
-                        # Create metadata for the migrated entry
-                        entry = CacheEntry(
-                            new_cache_dir, project_name, platform, Path("unknown")
-                        )
-                        entry.save_metadata()
-                    else:
-                        logger.warning(
-                            f"Cannot migrate {dir_name}: {new_name} already exists"
-                        )
-                        # Remove the old cache dir since we can't migrate it
-                        shutil.rmtree(cache_dir, ignore_errors=True)
-                else:
-                    logger.warning(
-                        f"Could not determine project/platform for {dir_name}, removing"
-                    )
-                    shutil.rmtree(cache_dir, ignore_errors=True)
+        platform, fingerprint = parts
+        # Fingerprint should be 8 hex characters
+        return len(fingerprint) == 8 and all(
+            c in "0123456789abcdef" for c in fingerprint.lower()
+        )
 
     @staticmethod
     def _pre_sanitize_name(name: str) -> str:
@@ -367,56 +410,3 @@ class CacheManager:
                 shutil.rmtree(entry.cache_dir)
         except OSError as e:
             logger.warning(f"Failed to remove cache entry {entry.name}: {e}")
-
-    def _guess_project_name_from_cache(self, cache_dir: Path) -> Optional[str]:
-        """Try to guess the project name from cache contents."""
-        # Look for project directories or .ino files
-        for item in cache_dir.rglob("*"):
-            if item.is_file() and item.suffix == ".ino":
-                return item.stem
-            elif item.is_dir() and item.name not in {
-                ".pio",
-                ".pio_home",
-                "src",
-                "lib",
-                "test",
-                "include",
-            }:
-                # This might be a project directory
-                if any(
-                    child.suffix == ".ino"
-                    for child in item.iterdir()
-                    if child.is_file()
-                ):
-                    return item.name
-
-        # Fallback: look for directory names that might be projects
-        for item in cache_dir.iterdir():
-            if item.is_dir() and item.name not in {".pio", ".pio_home"}:
-                return item.name
-
-        return None
-
-    def _guess_platform_from_cache(self, cache_dir: Path) -> Optional[str]:
-        """Try to guess the platform from cache contents."""
-        # Look for PlatformIO build artifacts that might indicate platform
-        pio_dir = cache_dir / ".pio"
-        if pio_dir.exists():
-            build_dir = pio_dir / "build"
-            if build_dir.exists():
-                # The build directory often contains platform-specific subdirs
-                for platform_dir in build_dir.iterdir():
-                    if platform_dir.is_dir():
-                        platform_name = platform_dir.name
-                        # Common platform names
-                        if platform_name in {
-                            "native",
-                            "uno",
-                            "teensy30",
-                            "esp32",
-                            "esp8266",
-                        }:
-                            return platform_name
-
-        # Fallback to a default
-        return "native"

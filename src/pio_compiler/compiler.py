@@ -121,7 +121,7 @@ class PioCompilerImpl:
                 project_dir = example_path
             else:
                 # In fast mode, the work_dir is already the cache directory for this project/platform
-                # (e.g., ".tpo_fast_cache/Blink-native"), so we don't need to add the project name again
+                # (e.g., ".tpo/native-a03a3ffa"), so we don't need to add the project name again
                 if self.fast_mode:
                     project_dir = self._work_dir
                 else:
@@ -167,7 +167,7 @@ class PioCompilerImpl:
         else:
             # Create a dedicated project inside the compiler's work dir.
             # In fast mode, the work_dir is already the cache directory for this project/platform
-            # (e.g., ".tpo_fast_cache/Blink-native"), so we don't need to add the project name again
+            # (e.g., ".tpo/native-a03a3ffa"), so we don't need to add the project name again
             if self.fast_mode:
                 project_dir = self._work_dir
             else:

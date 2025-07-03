@@ -15,7 +15,7 @@ class CliFastBuildIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:  # noqa: D401 – imperative mood is fine here
         self.project_root = Path(__file__).resolve().parent.parent.parent
         # Ensure a clean slate by removing the global fast cache directory.
-        self.fast_cache_root = self.project_root / ".tpo_fast_cache"
+        self.fast_cache_root = self.project_root / ".tpo"
         if self.fast_cache_root.exists():
             shutil.rmtree(self.fast_cache_root, ignore_errors=True)
 
