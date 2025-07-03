@@ -150,13 +150,35 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawTextHelpFormatter,
         add_help=True,
     )
+    # --------------------------------------------------------------
+    # Platform flags ("--native", "--uno", …) – users can specify one or
+    # more.  When omitted the CLI defaults to *native*.
+    # --------------------------------------------------------------
+
+    _PLATFORM_ALIASES = [
+        # default set – extend as needed
+        "native",
+        "uno",
+        "teensy30",
+    ]
+
+    platform_group = parser.add_argument_group("target platforms")
+
+    for _plat in _PLATFORM_ALIASES:
+        platform_group.add_argument(
+            f"--{_plat}",
+            dest="platforms",
+            action="append_const",
+            const=_plat,
+            help=f"Compile for the '{_plat}' platform",
+        )
+    # Positional sketch paths (one or more)
     parser.add_argument(
-        "platform",
-        help="Target platform name as understood by PlatformIO (e.g. 'native', 'esp32', …).",
+        "sketch",
+        nargs="*",
+        help="Path(s) to PlatformIO project directories or .ino files",
     )
-    # Retain legacy --src flag for explicit usage but hide it from --help to
-    # keep the primary syntax focused on the intuitive *positional* sketch
-    # paths + platform flag.
+
     parser.add_argument(
         "--src",
         metavar="PATH",
@@ -217,100 +239,6 @@ def _run_cli(arguments: List[str]) -> int:
         _build_argument_parser().print_help(sys.stdout)
         return 0
 
-    # ------------------------------------------------------------------
-    # Support *alternative* call style:  ``pio-compile <example> --native``
-    # ------------------------------------------------------------------
-    # Historically the CLI expected the *platform* as **positional** first
-    # followed by one or more ``--src`` flags.  Users, however, may find the
-    # more natural order "*example first – platform second*" easier to
-    # remember.  To preserve backwards-compatibility **and** accept the new
-    # order we perform a lightweight *pre-processing* step that detects the
-    # pattern and rewrites the argument list accordingly before handing it
-    # to the regular parser.
-
-    def _rewrite_alt_syntax(argv: List[str]) -> List[str]:
-        """Return *argv* rewritten into the canonical format if needed.
-
-        The *alternative* syntax is recognised when **no** "--src" flag is
-        present *and* at least one argument starts with "--".  The first
-        such "--<platform>" token is interpreted as the *platform* flag.
-        All *non* dash-prefixed tokens are treated as *source* paths.  The
-        function converts the token sequence into the canonical form
-
-            <platform> --src <path1> --src <path2> …
-
-        Compatible with the existing argument parser.
-        """
-
-        if "--src" in argv:
-            # Already in canonical form – nothing to do.
-            return argv
-
-        # ------------------------------------------------------------------
-        # The alternative syntax supports additional **global** flags such as
-        # ``--cache`` which themselves accept a *value* argument.  We need to
-        # preserve these flag/value pairs verbatim while still rewriting the
-        # positional tokens into the canonical form.
-        # ------------------------------------------------------------------
-
-        platform_name: str | None = None
-        src_paths: list[str] = []
-        extra_flags: list[str] = []
-
-        i = 0
-        while i < len(argv):
-            token = argv[i]
-
-            # Handle recognised *flag* tokens that take exactly **one** value
-            # argument which needs to be kept together with the flag.
-            if token == "--cache":
-                # Ensure that a *value* follows the flag to avoid *IndexError*
-                # in malformed invocations.
-                if i + 1 < len(argv):
-                    extra_flags.extend([token, argv[i + 1]])
-                    i += 2
-                    continue
-                # Malformed – no value after --cache – fall through and let
-                # argparse report the error later.
-
-            # Handle *boolean* flags that do not take a value.
-            if token in {"--fast", "--rebuild"}:
-                extra_flags.append(token)
-                i += 1
-                continue
-
-            # Detect the *platform* token (first dash-prefixed argument that is
-            # **not** a recognised flag).
-            if (
-                token.startswith("--")
-                and token not in {"--src", "--cache", "--fast", "--rebuild"}
-                and platform_name is None
-            ):
-                platform_name = token.lstrip("-")
-                i += 1
-                continue
-
-            # Everything else is considered a *source* path.
-            src_paths.append(token)
-            i += 1
-
-        if platform_name is None:
-            # No recognisable alternative syntax – return unchanged.
-            return argv
-
-        # Build canonical argv:  <platform> --src <path1> --src <path2> … <extra_flags>
-        new_argv: list[str] = [platform_name]
-        for path in src_paths:
-            new_argv.extend(["--src", path])
-
-        # Append the preserved *flag* tokens at the end so that argparse sees
-        # them in their original form.
-        new_argv.extend(extra_flags)
-
-        return new_argv
-
-    arguments = _rewrite_alt_syntax(arguments)
-
     parser = _build_argument_parser()
     ns = parser.parse_args(arguments)
 
@@ -330,13 +258,28 @@ def _run_cli(arguments: List[str]) -> int:
     elif getattr(ns, "fast_flag", False):
         fast_mode = True
 
-    # Ensure *src* is a list to simplify downstream handling.
-    src_list: list[str] = ns.src if ns.src is not None else []
+    # Combine positional sketches and --src flags.
+    src_list: list[str] = []
+    if getattr(ns, "sketch", None):
+        src_list.extend(ns.sketch)
+    if getattr(ns, "src", None):
+        src_list.extend(ns.src)
 
-    # ------------------------------------------------------------------
-    # Create compiler instance for the requested platform.
-    # ------------------------------------------------------------------
-    platform = Platform(ns.platform)
+    if not src_list:
+        logger.error(
+            "No sketch paths supplied. Provide at least one path or use --help for usage."
+        )
+        return 1
+
+    # Determine platform targets (default to 'native' if none provided).
+    if getattr(ns, "platforms", None):
+        platforms_list: list[str] = ns.platforms
+    else:
+        platforms_list = ["native"]
+
+    # Safety: *fast* mode only makes sense for a single platform & single sketch.
+    if fast_mode and (len(platforms_list) != 1 or len(src_list) != 1):
+        fast_mode = False  # silently fall back to rebuild semantics
 
     # ------------------------------------------------------------------
     # Inject *build_cache_dir* into the generated *platformio.ini* when the
@@ -399,9 +342,9 @@ def _run_cli(arguments: List[str]) -> int:
         from pathlib import Path as _Path
 
         abs_cache_dir = str(_Path(ns.cache).expanduser().resolve())
-        platform.platformio_ini = _with_build_cache_dir(
-            platform.platformio_ini, abs_cache_dir
-        )
+        # platform.platformio_ini = _with_build_cache_dir(
+        #     platform.platformio_ini, abs_cache_dir
+        # )
 
     # ------------------------------------------------------------------
     # *Fast* mode – compute fingerprinted work directory and configure
@@ -416,14 +359,16 @@ def _run_cli(arguments: List[str]) -> int:
     fast_hit: bool | None = None
 
     if fast_mode:
-        if len(src_list) != 1:
-            logger.error("--fast mode supports exactly one --src path at the moment.")
+        if len(src_list) != 1 or len(platforms_list) != 1:
+            logger.error(
+                "--fast mode supports exactly one platform and one sketch path."
+            )
             return 1
 
         import hashlib
 
         src_path = Path(src_list[0]).expanduser().resolve()
-        hash_input = f"{src_path}:{platform.name}".encode()
+        hash_input = f"{src_path}:{platforms_list[0]}".encode()
         fingerprint = hashlib.sha256(hash_input).hexdigest()[:12]
 
         fast_root = Path.cwd() / ".tpo_fast_cache"
@@ -452,108 +397,153 @@ def _run_cli(arguments: List[str]) -> int:
         rebuild=not fast_mode,
     )
 
-    compiler = PioCompiler(
-        platform,
-        work_dir=fast_dir,
-        fast_mode=fast_mode,
-    )
+    compilers: list[tuple[str, PioCompiler]] = []
 
-    init_result = compiler.initialize()
-    if not init_result.ok:
-        logger.error("Failed to initialise compiler: %s", init_result.exception)
-        return 1
+    for plat_name in platforms_list:
+        plat_obj = Platform(plat_name)
 
-    # Compile requested examples
+        if ns.cache:
+            from pathlib import Path as _Path
+
+            abs_cache_dir = str(_Path(ns.cache).expanduser().resolve())
+
+            def _inject_cache(base_ini: str | None) -> str:
+                if base_ini is None:
+                    base_ini = ""
+                if "[platformio]" not in base_ini:
+                    base_ini = (
+                        f"[platformio]\nbuild_cache_dir = {abs_cache_dir}\n\n"
+                        + base_ini
+                    )
+                elif "build_cache_dir" not in base_ini:
+                    base_ini = base_ini.replace(
+                        "[platformio]",
+                        f"[platformio]\nbuild_cache_dir = {abs_cache_dir}",
+                    )
+                return base_ini
+
+            plat_obj.platformio_ini = _inject_cache(plat_obj.platformio_ini)
+
+        compiler = PioCompiler(
+            plat_obj,
+            work_dir=fast_dir if fast_mode else None,
+            fast_mode=fast_mode,
+        )
+        init_result = compiler.initialize()
+        if not init_result.ok:
+            logger.error(
+                "Failed to initialise compiler (%s): %s",
+                plat_name,
+                init_result.exception,
+            )
+            return 1
+        compilers.append((plat_name, compiler))
+
+    # Compile for each platform
     src_paths = [Path(p) for p in src_list]
 
-    logger.debug("Starting compilation for %d example(s)", len(src_paths))
-    streams = compiler.multi_compile(src_paths)
-
     exit_code = 0
-    for src_path, future in zip(src_paths, streams):
-        # Resolve the compilation *Future* – this yields the actual
-        # :class:`CompilerStream` instance.
-        try:
-            stream = future.result()
-        except Exception as exc:  # pragma: no cover – treat failures gracefully
-            logger.error("Compilation failed for %s: %s", src_path, exc)
-            print(f"[ERROR] {src_path} – {exc}")
-            exit_code = 1
-            continue
 
-        logger.info("[BUILD] %s …", src_path)
-        print(f"[BUILD] {src_path} …")
+    for plat_name, compiler in compilers:
+        logger.info("[PLATFORM] %s", plat_name)
 
-        # Consume stream output until completion.
-        accumulated: list[str] = []
-        while not stream.is_done():
-            line = stream.readline(timeout=0.1)
-            if line is None:
-                # No new data yet – continue polling.
+        streams = compiler.multi_compile(src_paths)
+
+        for src_path, future in zip(src_paths, streams):
+            # Resolve the compilation *Future* – this yields the actual
+            # :class:`CompilerStream` instance.
+            try:
+                stream = future.result()
+            except Exception as exc:  # pragma: no cover – treat failures gracefully
+                logger.error("Compilation failed for %s: %s", src_path, exc)
+                print(f"[ERROR] {src_path} – {exc}")
+                exit_code = 1
                 continue
-            accumulated.append(line)
-            # Echo live so that users see progress immediately.
-            print(line, end="")
 
-        # Build finished – summarise.
-        total_bytes = sum(len(line_) for line_ in accumulated)
-        logger.info("[DONE] %s – captured %d bytes of output", src_path, total_bytes)
-        print(f"[DONE] {src_path} – captured {total_bytes} bytes of output\n")
+            logger.info("[BUILD] %s …", src_path)
+            print(f"[BUILD] {src_path} …")
 
-        # --------------------------------------------------------------
-        # Determine build success – propagate non-zero *exit codes* from
-        # the underlying *platformio* process so that callers (scripts,
-        # CI pipelines, unit tests, …) can reliably detect compilation
-        # failures.  *stream._popen* is *None* when the compiler runs in
-        # *simulation* mode or when the *example* path was invalid.
-        # Treat both situations as *failure* (exit code = 1) so that
-        # mis-configurations cannot masquerade as successful builds.
-        # --------------------------------------------------------------
-
-        proc_rc: int | None = None
-        if getattr(stream, "_popen", None) is not None:
-            proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
-
-        if proc_rc is None:
-            # No subprocess – consider this a failure because the build
-            # could not even start (e.g. invalid *example* path).
-            exit_code = 1
-        elif proc_rc != 0:
-            # Underlying *platformio run* command failed – propagate.
-            logger.error("[FAILED] %s – platformio exited with %d", src_path, proc_rc)
-            print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
-            exit_code = 1
-        else:
-            # Build succeeded – when running in *fast* mode we need to update
-            # the on-disk LRU index **after** the first successful build** so
-            # that failed/partial builds never pollute the cache.
-            if (
-                fast_mode
-                and fast_root is not None
-                and fast_dir is not None
-                and fingerprint is not None
-            ):
+            # Consume stream output until completion.
+            accumulated: list[str] = []
+            while not stream.is_done():
+                line = stream.readline(timeout=0.1)
+                if line is None:
+                    # No new data yet – continue polling.
+                    continue
+                accumulated.append(line)
+                # Echo live so that users see progress immediately.
                 try:
-                    from disklru import DiskLRUCache
+                    print(line, end="")
+                except UnicodeEncodeError:
+                    # Replace problematic characters to avoid IO errors on narrow encodings.
+                    safe = line.encode(errors="replace").decode(
+                        sys.stdout.encoding, errors="ignore"
+                    )
+                    print(safe, end="")
 
-                    index_path = fast_root / "build_index.db"
-                    lru = DiskLRUCache(str(index_path), max_entries=10)
+            # Build finished – summarise.
+            total_bytes = sum(len(line_) for line_ in accumulated)
+            logger.info(
+                "[DONE] %s – captured %d bytes of output", src_path, total_bytes
+            )
+            print(f"[DONE] {src_path} – captured {total_bytes} bytes of output\n")
 
-                    # Put/refresh entry for the current fingerprint.  The
-                    # returned value is not used – DiskLRUCache handles
-                    # eviction transparently.
-                    lru.put(fingerprint, str(fast_dir))
+            # --------------------------------------------------------------
+            # Determine build success – propagate non-zero *exit codes* from
+            # the underlying *platformio* process so that callers (scripts,
+            # CI pipelines, unit tests, …) can reliably detect compilation
+            # failures.  *stream._popen* is *None* when the compiler runs in
+            # *simulation* mode or when the *example* path was invalid.
+            # Treat both situations as *failure* (exit code = 1) so that
+            # mis-configurations cannot masquerade as successful builds.
+            # --------------------------------------------------------------
 
-                    # Clean up directories that are **no longer** referenced
-                    # by the index (e.g. after eviction).
-                    valid_keys = set(lru.keys())  # type: ignore[attr-defined]
-                    for dir_entry in fast_root.iterdir():
-                        if not dir_entry.is_dir():
-                            continue
-                        if dir_entry.name not in valid_keys:
-                            shutil.rmtree(dir_entry, ignore_errors=True)
-                except Exception as exc:  # pragma: no cover – best-effort
-                    logger.warning("Failed to update fast-cache index: %s", exc)
+            proc_rc: int | None = None
+            if getattr(stream, "_popen", None) is not None:
+                proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
+
+            if proc_rc is None:
+                # No subprocess – consider this a failure because the build
+                # could not even start (e.g. invalid *example* path).
+                exit_code = 1
+            elif proc_rc != 0:
+                # Underlying *platformio run* command failed – propagate.
+                logger.error(
+                    "[FAILED] %s – platformio exited with %d", src_path, proc_rc
+                )
+                print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
+                exit_code = 1
+            else:
+                # Build succeeded – when running in *fast* mode we need to update
+                # the on-disk LRU index **after** the first successful build** so
+                # that failed/partial builds never pollute the cache.
+                if (
+                    fast_mode
+                    and fast_root is not None
+                    and fast_dir is not None
+                    and fingerprint is not None
+                ):
+                    try:
+                        from disklru import DiskLRUCache
+
+                        index_path = fast_root / "build_index.db"
+                        lru = DiskLRUCache(str(index_path), max_entries=10)
+
+                        # Put/refresh entry for the current fingerprint.  The
+                        # returned value is not used – DiskLRUCache handles
+                        # eviction transparently.
+                        lru.put(fingerprint, str(fast_dir))
+
+                        # Clean up directories that are **no longer** referenced
+                        # by the index (e.g. after eviction).
+                        valid_keys = set(lru.keys())  # type: ignore[attr-defined]
+                        for dir_entry in fast_root.iterdir():
+                            if not dir_entry.is_dir():
+                                continue
+                            if dir_entry.name not in valid_keys:
+                                shutil.rmtree(dir_entry, ignore_errors=True)
+                    except Exception as exc:  # pragma: no cover – best-effort
+                        logger.warning("Failed to update fast-cache index: %s", exc)
 
     return exit_code
 
