@@ -1,6 +1,6 @@
-/// SKETCH-DEPENDENCIES-START
+/// SKETCH-INFO
 /// dependencies = ["FastLED"]
-/// SKETCH-DEPENDENCIES-END
+/// SKETCH-INFO
 
 // UIDescription: This example shows how to blur a strip of LEDs. It uses the blur1d function to blur the strip and fadeToBlackBy to dim the strip. A bright pixel moves along the strip.
 // Author: Zach Vorhies

@@ -824,9 +824,9 @@ def _parse_sketch_dependencies(sketch_path: Path) -> list[str]:
     """Parse dependencies from sketch header comments.
 
     Looks for embedded dependencies in the first 5 lines of a sketch file:
-    /// SKETCH-DEPENDENCIES-START
+    /// SKETCH-INFO
     /// dependencies = ["FastLED", "ArduinoJson"]
-    /// SKETCH-DEPENDENCIES-END
+    /// SKETCH-INFO
 
     Args:
         sketch_path: Path to the sketch file (.ino) or directory containing sketch
@@ -863,11 +863,14 @@ def _parse_sketch_dependencies(sketch_path: Path) -> list[str]:
         # Look for the dependency block
         in_dependency_block = False
         for line in lines:
-            if line == "/// SKETCH-DEPENDENCIES-START":
-                in_dependency_block = True
-                continue
-            elif line == "/// SKETCH-DEPENDENCIES-END":
-                break
+            if line == "/// SKETCH-INFO":
+                if in_dependency_block:
+                    # Second SKETCH-INFO marker - end of block
+                    break
+                else:
+                    # First SKETCH-INFO marker - start of block
+                    in_dependency_block = True
+                    continue
             elif in_dependency_block and line.startswith("/// dependencies = "):
                 # Parse the dependencies list
                 deps_str = line[len("/// dependencies = ") :].strip()

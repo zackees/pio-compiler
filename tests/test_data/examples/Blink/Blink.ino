@@ -1,6 +1,6 @@
-/// SKETCH-DEPENDENCIES-START
+/// SKETCH-INFO
 /// dependencies = ["FastLED"]
-/// SKETCH-DEPENDENCIES-END
+/// SKETCH-INFO
 
 /// @file    Blink.ino
 /// @brief   Blink the first LED of an LED strip

@@ -1,6 +1,6 @@
-/// SKETCH-DEPENDENCIES-START
+/// SKETCH-INFO
 /// dependencies = ["FastLED"]
-/// SKETCH-DEPENDENCIES-END
+/// SKETCH-INFO
 
 #include <Arduino.h>
 #include <FastLED.h>
