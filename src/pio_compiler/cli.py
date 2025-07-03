@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import sys
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import List
 
@@ -33,6 +36,80 @@ configure_logging()
 # status messages.  The CLI still uses *print* for user-facing output so that
 # scripts expecting *stdout* messages continue to work unchanged.
 logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------
+# Pretty *npm-style* startup banner helpers.
+# Defined **early** so that _run_cli can call them immediately.
+# ----------------------------------------------------------------------
+
+
+def _ansi(code: str) -> str:  # helper – wrap ANSI codes only when supported
+    if not sys.stdout.isatty() or os.getenv("NO_COLOR") is not None:
+        return ""
+    return f"\033[{code}m"
+
+
+_BOLD = _ansi("1")
+_RESET = _ansi("0")
+_CYAN = _ansi("36")
+_GREEN = _ansi("32")
+_YELLOW = _ansi("33")
+_MAGENTA = _ansi("35")
+
+
+def _tool_version() -> str:
+    try:
+        return _pkg_version("pio_compiler")
+    except PackageNotFoundError:
+        return "dev"
+
+
+# Determine whether the current stdout encoding supports common Unicode symbols.
+_UNICODE_OK = True
+try:
+    "⚡".encode(sys.stdout.encoding or "utf-8")
+except Exception:  # pragma: no cover – fallback when encoding unsupported
+    _UNICODE_OK = False
+
+
+def _sym(unicode_symbol: str, ascii_fallback: str) -> str:
+    """Return *unicode_symbol* if terminal encoding supports it, else *ascii_fallback*."""
+
+    return unicode_symbol if _UNICODE_OK else ascii_fallback
+
+
+LIGHTNING = _sym("⚡", "*")
+ROCKET = _sym("🚀", "-")
+PACKAGE = _sym("📦", "#")
+HAMMER = _sym("🔨", "!")
+
+
+def _print_startup_banner(
+    *,
+    fast_mode: bool,
+    fast_dir: Path | None,
+    fast_hit: bool | None,
+    cache_dir: str | None,
+    rebuild: bool,
+) -> None:  # noqa: D401
+    """Print a colourful npm-style banner summarising build configuration."""
+
+    header = f"{_BOLD}{_CYAN}{LIGHTNING} pio-compiler v{_tool_version()}{_RESET}"
+    print(header)
+
+    if fast_mode and fast_dir is not None:
+        status_colour = _GREEN if fast_hit else _YELLOW
+        status = "hit" if fast_hit else "miss"
+        print(f"  {status_colour}{ROCKET} Fast cache [{status}]: {fast_dir}{_RESET}")
+    elif rebuild:
+        print(f"  {_MAGENTA}{HAMMER} Full rebuild – no incremental cache{_RESET}")
+
+    if cache_dir is not None:
+        print(f"  {_CYAN}{PACKAGE} Global PIO cache: {cache_dir}{_RESET}")
+
+    # Trailing newline for separation before build output.
+    print()
+
 
 # ----------------------------------------------------------------------
 # *CLIArguments* – typed container for parsed command-line options.
@@ -318,6 +395,7 @@ def _run_cli(arguments: List[str]) -> int:
     fast_root: Path | None = None
     fast_dir: Path | None = None
     fingerprint: str | None = None
+    fast_hit: bool | None = None
 
     if cli_args.fast:
         if len(cli_args.src) != 1:
@@ -334,13 +412,26 @@ def _run_cli(arguments: List[str]) -> int:
         fast_root.mkdir(exist_ok=True)
         fast_dir = fast_root / fingerprint
 
-        if fast_dir.exists():
+        fast_hit = fast_dir.exists()
+        if fast_hit:
             print(f"[FAST] Cache hit – using cache directory: {fast_dir}")
         else:
             print(f"[FAST] Cache miss – creating cache directory: {fast_dir}")
             fast_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[FAST] Using cache directory: {fast_dir}")
+
+    # ------------------------------------------------------------------
+    # Print slick startup banner summarising the chosen configuration.
+    # ------------------------------------------------------------------
+
+    _print_startup_banner(
+        fast_mode=cli_args.fast,
+        fast_dir=fast_dir,
+        fast_hit=fast_hit,
+        cache_dir=cli_args.cache,
+        rebuild=not cli_args.fast,
+    )
 
     compiler = PioCompiler(
         platform,
