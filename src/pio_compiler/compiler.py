@@ -55,7 +55,7 @@ class PioCompilerImpl:
     # ------------------------------------------------------------------
     # API mandated by the README – initialise, build_info, compile, …
     # ------------------------------------------------------------------
-    def initialize(self) -> Result:  # noqa: D401 – *initialize* is fine
+    def initialize(self) -> Result:
         """Create *platformio.ini* so that subsequent builds can run.
 
         The method now always returns a :class:`Result` instance.  On failure
@@ -74,7 +74,7 @@ class PioCompilerImpl:
             # ``isinstance`` checks.
             return Result(ok=False, platform=self.platform, exception=exc)
 
-    def build_info(self) -> Dict[str, Any]:  # noqa: D401 – we mirror README naming
+    def build_info(self) -> Dict[str, Any]:
         """Return a small JSON-serialisable dict with environment information."""
 
         return {
@@ -86,9 +86,7 @@ class PioCompilerImpl:
     # --------------------------------------------------------------
     # *compile* – build a single example.
     # --------------------------------------------------------------
-    def compile(
-        self, example: Path | str
-    ) -> CompilerStream:  # noqa: D401 – spec compliance
+    def compile(self, example: Path | str) -> CompilerStream:
         """Compile *example* and return a :class:`CompilerStream` instance.
 
         The method starts the PlatformIO build in the background (unless it

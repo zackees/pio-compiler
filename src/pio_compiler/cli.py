@@ -16,11 +16,7 @@ import argparse
 import sys
 from typing import List
 
-from pio_compiler import (  # noqa: F401 – imported for type completeness
-    CompilerStream,
-    PioCompiler,
-    Platform,
-)
+from pio_compiler import PioCompiler, Platform
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -90,12 +86,12 @@ def _run_cli(arguments: List[str]) -> int:
     return exit_code
 
 
-def main(argv: list[str] | None = None) -> int:  # noqa: D401 – *main* is fine
-    """The public entry-point consumed by :pymod:`setuptools` *console_scripts*.
+def main(argv: list[str] | None = None) -> int:
+    """Run the *pio_compiler* command-line interface and return its exit code.
 
     When called *without* arguments (as done in the unit tests) the function
-    prints a small help message and returns *0* to keep the contract with the
-    existing test-suite.
+    prints a short informational message and returns *0* to keep compatibility
+    with the existing test-suite.
     """
 
     if argv is None:

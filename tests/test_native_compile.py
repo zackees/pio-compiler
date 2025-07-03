@@ -15,13 +15,13 @@ class NativeCompileTest(unittest.TestCase):
 
     EXAMPLE_PATH = Path(__file__).parent / "test_data" / "examples" / "Blink"
 
-    def setUp(self) -> None:  # noqa: D401 – unittest naming
+    def setUp(self) -> None:
         if not shutil.which("platformio"):
             self.skipTest(
                 "PlatformIO executable not found – skipping native compile test."
             )
 
-    def test_compile_blink_native(self) -> None:  # noqa: D401
+    def test_compile_blink_native(self) -> None:
         platform = Platform("native")  # Use built-in default configuration
         compiler = PioCompiler(platform)
 

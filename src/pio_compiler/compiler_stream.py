@@ -60,7 +60,7 @@ class CompilerStream:
         except Empty:
             return None
 
-    def is_done(self) -> bool:  # noqa: D401 – requested naming
+    def is_done(self) -> bool:
         """Return *True* **while** the compilation is still active.
 
         The method mirrors the slightly counter‐intuitive behaviour
@@ -95,9 +95,13 @@ class CompilerStream:
         assert self._popen is not None, "_reader_thread called without process"
 
         try:
-            # Iterate over the *text mode* stdout stream line-by‐line.  The
-            # iteration stops on EOF automatically.
-            for raw in self._popen.stdout:  # type: ignore[union-attr]
+            stdout_stream = self._popen.stdout
+            if stdout_stream is None:
+                # No stdout available; mark processing as done.
+                self._process_done = True
+                return
+
+            for raw in stdout_stream:
                 # *raw* is ``bytes`` – decode explicitly using UTF-8 and
                 # *replace* invalid sequences so that callers never have
                 # to deal with *decode* errors.
