@@ -224,8 +224,8 @@ lib_deps = FastLED
         for i in range(5):
             source = self.temp_dir / f"project_{i}"
             source.mkdir()
-            # Make each entry unique by adding a comment with the index
-            unique_ini = self.test_platformio_ini + f"\n; Project {i} specific comment"
+            # Make each entry unique by adding actual content differences (not just comments)
+            unique_ini = self.test_platformio_ini + f"\nbuild_flags = -DPROJECT_{i}"
             entry = self.cache_manager.get_cache_entry(source, "native", unique_ini)
             entries.append(entry)
 
@@ -308,6 +308,146 @@ lib_deps = FastLED
 
         # Verify cache directory was removed
         self.assertFalse(self.cache_manager.cache_root.exists())
+
+    def test_platformio_content_cleaning_comments(self) -> None:
+        """Test that semicolon comments are properly removed."""
+        content = """[env:uno]
+platform = atmelavr ; this is a comment
+board = uno ; another comment
+framework = arduino"""
+
+        expected = """[env:uno]
+platform = atmelavr
+board = uno
+framework = arduino"""
+
+        cleaned = self.cache_manager._clean_platformio_content(content)
+        self.assertEqual(cleaned, expected)
+
+    def test_platformio_content_cleaning_whitespace(self) -> None:
+        """Test that lines are properly trimmed."""
+        content = """  [env:uno]  
+  platform = atmelavr  
+  board = uno  
+  framework = arduino  """
+
+        expected = """[env:uno]
+platform = atmelavr
+board = uno
+framework = arduino"""
+
+        cleaned = self.cache_manager._clean_platformio_content(content)
+        self.assertEqual(cleaned, expected)
+
+    def test_platformio_content_cleaning_double_empty_lines(self) -> None:
+        """Test that double empty lines are removed repeatedly."""
+        content = """[env:uno]
+platform = atmelavr
+
+
+board = uno
+
+
+
+framework = arduino
+
+
+
+"""
+
+        expected = """[env:uno]
+platform = atmelavr
+
+board = uno
+
+framework = arduino"""
+
+        cleaned = self.cache_manager._clean_platformio_content(content)
+        self.assertEqual(cleaned, expected)
+
+    def test_platformio_content_cleaning_complex_case(self) -> None:
+        """Test cleaning with comments, whitespace, and double empty lines combined."""
+        content = """  [platformio]  ; project config
+  build_cache_dir = .cache  ; cache location
+
+
+  [env:uno]  ; target configuration
+  platform = atmelavr ; AVR platform
+  board = uno ; Arduino Uno
+
+
+
+  framework = arduino ; Arduino framework
+
+  ; Full line comment
+
+
+  upload_port = COM3 ; Windows port"""
+
+        expected = """[platformio]
+build_cache_dir = .cache
+
+[env:uno]
+platform = atmelavr
+board = uno
+
+framework = arduino
+
+upload_port = COM3"""
+
+        cleaned = self.cache_manager._clean_platformio_content(content)
+        self.assertEqual(cleaned, expected)
+
+    def test_platformio_content_cleaning_empty_input(self) -> None:
+        """Test cleaning empty or whitespace-only input."""
+        self.assertEqual(self.cache_manager._clean_platformio_content(""), "")
+        self.assertEqual(self.cache_manager._clean_platformio_content("   "), "")
+        self.assertEqual(self.cache_manager._clean_platformio_content("\n\n\n"), "")
+
+    def test_platformio_content_cleaning_only_comments(self) -> None:
+        """Test cleaning content that becomes empty after comment removal."""
+        content = """; This is a comment
+; Another comment
+   ; Indented comment"""
+
+        expected = ""
+
+        cleaned = self.cache_manager._clean_platformio_content(content)
+        self.assertEqual(cleaned, expected)
+
+    def test_fingerprint_consistency(self) -> None:
+        """Test that the same content (after cleaning) produces the same fingerprint."""
+        content1 = """[env:uno]
+platform = atmelavr ; comment
+board = uno"""
+
+        content2 = """  [env:uno]  
+  platform = atmelavr  
+  board = uno  """
+
+        fingerprint1 = self.cache_manager._generate_fingerprint(content1)
+        fingerprint2 = self.cache_manager._generate_fingerprint(content2)
+
+        # Both should produce the same fingerprint since they clean to the same content
+        self.assertEqual(fingerprint1, fingerprint2)
+        self.assertEqual(len(fingerprint1), 8)
+        self.assertEqual(len(fingerprint2), 8)
+
+    def test_fingerprint_different_for_different_content(self) -> None:
+        """Test that different content produces different fingerprints."""
+        content1 = """[env:uno]
+platform = atmelavr
+board = uno"""
+
+        content2 = """[env:nano]
+platform = atmelavr
+board = nano"""
+
+        fingerprint1 = self.cache_manager._generate_fingerprint(content1)
+        fingerprint2 = self.cache_manager._generate_fingerprint(content2)
+
+        # Different content should produce different fingerprints
+        self.assertNotEqual(fingerprint1, fingerprint2)
 
 
 if __name__ == "__main__":

@@ -187,10 +187,73 @@ class CacheManager:
         Returns:
             8-character hexadecimal fingerprint
         """
-        # Create SHA256 hash of the content
-        hash_obj = hashlib.sha256(platformio_ini_content.encode("utf-8"))
+        # Clean the content using our specialized cleaning logic
+        cleaned_content = self._clean_platformio_content(platformio_ini_content)
+
+        # Create SHA256 hash of the cleaned content
+        hash_obj = hashlib.sha256(cleaned_content.encode("utf-8"))
         # Take first 8 characters of the hex digest
         return hash_obj.hexdigest()[:8]
+
+    def _clean_platformio_content(self, content: str) -> str:
+        """Clean PlatformIO file content for consistent fingerprinting.
+
+        This method implements specific cleaning rules:
+        1. For each line, truncate everything from ';' onwards (including the ';')
+        2. Trim each line
+        3. Remove all double empty lines repeatedly
+        4. Join lines and trim the final string
+
+        Args:
+            content: Raw PlatformIO file content
+
+        Returns:
+            Cleaned content string ready for hashing
+        """
+        # Break the string into lines
+        lines = content.splitlines()
+
+        # Process each line: remove comments and trim
+        cleaned_lines = []
+        for line in lines:
+            # Find semicolon and truncate everything from there (including the semicolon)
+            semicolon_pos = line.find(";")
+            if semicolon_pos != -1:
+                line = line[:semicolon_pos]
+
+            # Trim the line
+            line = line.strip()
+            cleaned_lines.append(line)
+
+        # Remove double empty lines repeatedly
+        while True:
+            # Find consecutive empty lines and replace double+ empty lines with single empty line
+            new_lines = []
+            prev_was_empty = False
+
+            for line in cleaned_lines:
+                is_empty = line == ""
+
+                # If current line is empty and previous was also empty, skip this line
+                if is_empty and prev_was_empty:
+                    continue
+
+                new_lines.append(line)
+                prev_was_empty = is_empty
+
+            # If no changes were made, we're done
+            if len(new_lines) == len(cleaned_lines):
+                break
+
+            cleaned_lines = new_lines
+
+        # Join all remaining lines into a string
+        result = "\n".join(cleaned_lines)
+
+        # Trim the final string
+        result = result.strip()
+
+        return result
 
     def list_cache_entries(self) -> list[CacheEntry]:
         """List all cache entries in the cache root."""
