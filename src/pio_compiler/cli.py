@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import List
 
 from pio_compiler import PioCompiler, Platform
+from pio_compiler.boards import ALL as ALL_BOARDS
 from pio_compiler.logging_utils import configure_logging
 
 # Configure logging early so that all sub-modules use the same defaults when the
@@ -329,12 +330,13 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     # more.  When omitted the CLI defaults to *native*.
     # --------------------------------------------------------------
 
-    _PLATFORM_ALIASES = [
-        # default set – extend as needed
-        "native",
-        "uno",
-        "teensy30",
-    ]
+    # Get all board names from boards.py
+    _PLATFORM_ALIASES = list(set(board.board_name for board in ALL_BOARDS))
+    # Ensure native is included (it should already be in ALL_BOARDS)
+    if "native" not in _PLATFORM_ALIASES:
+        _PLATFORM_ALIASES.append("native")
+    # Sort for consistent help output
+    _PLATFORM_ALIASES.sort()
 
     platform_group = parser.add_argument_group("target platforms")
 
@@ -556,7 +558,11 @@ def _run_cli(arguments: List[str]) -> int:
     compilers: list[tuple[str, PioCompiler]] = []
 
     for plat_name in args.platforms:
-        plat_obj = Platform(plat_name)
+        # Try to get board configuration first, fallback to string name
+        from pio_compiler.boards import get_board
+
+        board = get_board(plat_name)
+        plat_obj = Platform(board)
 
         if args.cache:
             from pathlib import Path as _Path
