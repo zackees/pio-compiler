@@ -179,6 +179,30 @@ def _run_cli(arguments: List[str]) -> int:
         logger.info("[DONE] %s – captured %d bytes of output", src_path, total_bytes)
         print(f"[DONE] {src_path} – captured {total_bytes} bytes of output\n")
 
+        # --------------------------------------------------------------
+        # Determine build success – propagate non-zero *exit codes* from
+        # the underlying *platformio* process so that callers (scripts,
+        # CI pipelines, unit tests, …) can reliably detect compilation
+        # failures.  *stream._popen* is *None* when the compiler runs in
+        # *simulation* mode or when the *example* path was invalid.
+        # Treat both situations as *failure* (exit code = 1) so that
+        # mis-configurations cannot masquerade as successful builds.
+        # --------------------------------------------------------------
+
+        proc_rc: int | None = None
+        if getattr(stream, "_popen", None) is not None:
+            proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
+
+        if proc_rc is None:
+            # No subprocess – consider this a failure because the build
+            # could not even start (e.g. invalid *example* path).
+            exit_code = 1
+        elif proc_rc != 0:
+            # Underlying *platformio run* command failed – propagate.
+            logger.error("[FAILED] %s – platformio exited with %d", src_path, proc_rc)
+            print(f"[FAILED] {src_path} – platformio exited with {proc_rc}\n")
+            exit_code = 1
+
     return exit_code
 
 
