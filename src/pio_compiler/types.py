@@ -73,6 +73,11 @@ platform = platformio/native
 lib_deps =
     FastLED
 
+; Allow libraries that do not explicitly declare compatibility with the
+; *platformio/native* platform so that FastLED becomes available even though
+; its manifest only lists *embedded* targets.
+lib_compat_mode = off
+
 build_flags =
     -DFASTLED_STUB_IMPL
     -std=c++17
