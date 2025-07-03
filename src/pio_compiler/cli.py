@@ -16,6 +16,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -120,6 +121,64 @@ def _print_startup_banner(
     print()
 
 
+def _print_info_reports(
+    compiler: PioCompiler, src_path: Path, platform_name: str
+) -> None:
+    """Print npm-style info about generated optimization reports and build info."""
+
+    # Determine project directory
+    if (src_path / "platformio.ini").exists():
+        project_dir = src_path
+    else:
+        if compiler.fast_mode:
+            project_dir = compiler._work_dir
+        else:
+            project_dir = compiler._work_dir / src_path.stem
+
+    # Record build start time
+    build_start_time = time.time()
+
+    # Generate optimization report
+    opt_report_path = compiler.generate_optimization_report(project_dir, src_path)
+
+    # Generate build info
+    build_info_path = compiler.generate_build_info(
+        project_dir, src_path, build_start_time
+    )
+
+    # Print npm-style output
+    header = f"{_BOLD}{_CYAN}build info{_RESET}"
+    print(f"\n{header}")
+
+    # Show optimization report
+    if opt_report_path:
+        relative_path = (
+            opt_report_path.relative_to(Path.cwd())
+            if opt_report_path.is_absolute()
+            and opt_report_path.is_relative_to(Path.cwd())
+            else opt_report_path
+        )
+        print(
+            f"  {_GREEN}[x]{_RESET} Optimization report: {_YELLOW}{relative_path}{_RESET}"
+        )
+    else:
+        print(f"  {_YELLOW}[ ]{_RESET} Optimization report: generation failed")
+
+    # Show build info
+    if build_info_path:
+        relative_path = (
+            build_info_path.relative_to(Path.cwd())
+            if build_info_path.is_absolute()
+            and build_info_path.is_relative_to(Path.cwd())
+            else build_info_path
+        )
+        print(f"  {_GREEN}[x]{_RESET} build_info: {_YELLOW}{relative_path}{_RESET}")
+    else:
+        print(f"  {_YELLOW}[ ]{_RESET} build_info: generation failed")
+
+    print()  # Trailing newline
+
+
 # ----------------------------------------------------------------------
 # *CLIArguments* – typed container for parsed command-line options.
 # ----------------------------------------------------------------------
@@ -138,6 +197,8 @@ class CLIArguments:
     cache: str | None = None
     # Enable *fast* mode (persistent work directory with incremental builds)
     fast: bool = False
+    # Enable info mode (generate optimization reports and build info)
+    info: bool = False
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -234,6 +295,18 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         dest="fast_flag",
         action="store_true",
         help=argparse.SUPPRESS,
+    )
+
+    # Info flag for generating optimization reports and build info
+    parser.add_argument(
+        "--info",
+        dest="info",
+        action="store_true",
+        help=(
+            "Generate optimization reports and build_info.json files. "
+            "This includes memory usage analysis, compilation statistics, "
+            "and build information similar to npm build outputs."
+        ),
     )
 
     return parser
@@ -422,6 +495,7 @@ def _run_cli(arguments: List[str]) -> int:
             fast_mode=fast_mode,
             disable_auto_clean=False,
             force_rebuild=getattr(ns, "clean", False),
+            info_mode=getattr(ns, "info", False),
         )
         init_result = compiler.initialize()
         if not init_result.ok:
@@ -543,6 +617,10 @@ def _run_cli(arguments: List[str]) -> int:
                         )
                     except Exception as exc:  # pragma: no cover – best-effort
                         logger.warning("Failed to cleanup cache entries: %s", exc)
+
+                # Generate info reports if --info flag was provided
+                if getattr(ns, "info", False):
+                    _print_info_reports(compiler, src_path, plat_name)
 
     return exit_code
 

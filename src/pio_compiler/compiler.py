@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -50,17 +52,20 @@ class PioCompilerImpl:
         fast_mode: bool = False,
         disable_auto_clean: bool = False,
         force_rebuild: bool = False,
+        info_mode: bool = False,
     ) -> None:
         self.platform = platform
         self.fast_mode = fast_mode
         self.disable_auto_clean = disable_auto_clean
         self.force_rebuild = force_rebuild
+        self.info_mode = info_mode
         logger.debug(
-            "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s, force_rebuild=%s)",
+            "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s, force_rebuild=%s, info_mode=%s)",
             platform.name,
             fast_mode,
             disable_auto_clean,
             force_rebuild,
+            info_mode,
         )
         # Work in a dedicated temporary directory unless the caller wants a
         # persistent *work_dir*.
@@ -143,6 +148,222 @@ class PioCompilerImpl:
 
             return str(pio_cache)
         except Exception:
+            return None
+
+    def generate_optimization_report(
+        self, project_dir: Path, example_path: Path
+    ) -> Path | None:
+        """Generate PlatformIO optimization report and return the path to the report file.
+
+        Args:
+            project_dir: The PlatformIO project directory
+            example_path: The source example path
+
+        Returns:
+            Path to the optimization report file or None if generation failed
+        """
+        try:
+            # Generate report filename
+            report_name = (
+                f"optimization_report_{self.platform.name}_{example_path.stem}.txt"
+            )
+            report_path = project_dir / report_name
+
+            # Run PlatformIO with verbose output to capture memory usage
+            pio_executable = shutil.which("platformio")
+            if not pio_executable:
+                logger.warning(
+                    "PlatformIO executable not found for optimization report"
+                )
+                return None
+
+            import os
+
+            env = os.environ.copy()
+            pio_home = project_dir / ".pio_home"
+            env["PLATFORMIO_CORE_DIR"] = str(pio_home)
+
+            # Run platformio check for static analysis (if available)
+            check_cmd = [pio_executable, "check", "-d", str(project_dir), "--verbose"]
+
+            report_content = []
+            report_content.append("=" * 80)
+            report_content.append(f"OPTIMIZATION REPORT for {example_path.name}")
+            report_content.append(f"Platform: {self.platform.name}")
+            report_content.append(f"Generated: {datetime.now().isoformat()}")
+            report_content.append("=" * 80)
+            report_content.append("")
+
+            # Try to get static analysis report
+            try:
+                logger.debug("Running PlatformIO check for static analysis")
+                check_result = subprocess.run(
+                    check_cmd, capture_output=True, text=True, env=env, timeout=120
+                )
+
+                if check_result.returncode == 0:
+                    report_content.append("STATIC ANALYSIS REPORT:")
+                    report_content.append("-" * 40)
+                    report_content.append(check_result.stdout)
+                    report_content.append("")
+                else:
+                    report_content.append("STATIC ANALYSIS: Not available or failed")
+                    report_content.append("")
+
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+                logger.debug(f"Static analysis failed: {e}")
+                report_content.append("STATIC ANALYSIS: Not available")
+                report_content.append("")
+
+            # Get build size information
+            build_dir = project_dir / ".pio" / "build" / self.platform.name
+            firmware_elf = build_dir / "firmware.elf"
+
+            if firmware_elf.exists():
+                report_content.append("MEMORY USAGE ANALYSIS:")
+                report_content.append("-" * 40)
+
+                # Use arm-none-eabi-size or equivalent to get memory info
+                size_tools = ["arm-none-eabi-size", "size", "avr-size"]
+                size_cmd = None
+
+                for tool in size_tools:
+                    if shutil.which(tool):
+                        size_cmd = [tool, "-A", str(firmware_elf)]
+                        break
+
+                if size_cmd:
+                    try:
+                        size_result = subprocess.run(
+                            size_cmd, capture_output=True, text=True, timeout=30
+                        )
+                        if size_result.returncode == 0:
+                            report_content.append(size_result.stdout)
+                        else:
+                            report_content.append(
+                                f"Size analysis failed: {size_result.stderr}"
+                            )
+                    except subprocess.SubprocessError as e:
+                        report_content.append(f"Size analysis error: {e}")
+                else:
+                    report_content.append("Size analysis tool not found")
+
+                report_content.append("")
+
+                # Get detailed section information
+                try:
+                    file_size = firmware_elf.stat().st_size
+                    report_content.append(f"Firmware file size: {file_size} bytes")
+                    report_content.append("")
+                except OSError:
+                    pass
+
+            # Write report to file
+            report_path.write_text("\n".join(report_content), encoding="utf-8")
+            logger.debug(f"Optimization report written to: {report_path}")
+            return report_path
+
+        except Exception as e:
+            logger.warning(f"Failed to generate optimization report: {e}")
+            return None
+
+    def generate_build_info(
+        self, project_dir: Path, example_path: Path, build_start_time: float
+    ) -> Path | None:
+        """Generate build_info.json file with comprehensive build information.
+
+        Args:
+            project_dir: The PlatformIO project directory
+            example_path: The source example path
+            build_start_time: Unix timestamp when build started
+
+        Returns:
+            Path to the build_info.json file or None if generation failed
+        """
+        try:
+            import json
+            from datetime import datetime
+
+            build_info_path = project_dir / "build_info.json"
+            build_end_time = time.time()
+
+            # Collect build information
+            build_info = {
+                "project": {
+                    "name": example_path.stem,
+                    "path": str(example_path),
+                    "platform": self.platform.name,
+                    "work_dir": str(project_dir),
+                },
+                "build": {
+                    "start_time": build_start_time,
+                    "end_time": build_end_time,
+                    "duration_seconds": build_end_time - build_start_time,
+                    "start_time_iso": datetime.fromtimestamp(
+                        build_start_time
+                    ).isoformat(),
+                    "end_time_iso": datetime.fromtimestamp(build_end_time).isoformat(),
+                    "fast_mode": self.fast_mode,
+                    "force_rebuild": self.force_rebuild,
+                    "info_mode": self.info_mode,
+                },
+                "environment": {
+                    "pio_compiler_version": "1.0.0",  # This should be dynamic
+                    "platform_config": self.platform.platformio_ini or "",
+                    "cache_dir": self.get_pio_cache_dir(example_path),
+                },
+                "artifacts": {"firmware_files": [], "size_info": {}},
+            }
+
+            # Collect firmware artifacts
+            build_dir = project_dir / ".pio" / "build" / self.platform.name
+            if build_dir.exists():
+                for pattern in ["*.elf", "*.bin", "*.hex"]:
+                    for artifact in build_dir.glob(pattern):
+                        try:
+                            size = artifact.stat().st_size
+                            build_info["artifacts"]["firmware_files"].append(
+                                {
+                                    "name": artifact.name,
+                                    "path": str(artifact.relative_to(project_dir)),
+                                    "size_bytes": size,
+                                    "modified": artifact.stat().st_mtime,
+                                }
+                            )
+                        except OSError:
+                            continue
+
+            # Get memory usage info if available
+            firmware_elf = build_dir / "firmware.elf"
+            if firmware_elf.exists():
+                # Try to get size information
+                size_tools = ["arm-none-eabi-size", "size", "avr-size"]
+                for tool in size_tools:
+                    if shutil.which(tool):
+                        try:
+                            size_result = subprocess.run(
+                                [tool, "-A", str(firmware_elf)],
+                                capture_output=True,
+                                text=True,
+                                timeout=30,
+                            )
+                            if size_result.returncode == 0:
+                                build_info["artifacts"]["size_info"][
+                                    "raw_output"
+                                ] = size_result.stdout
+                                break
+                        except subprocess.SubprocessError:
+                            continue
+
+            # Write build_info.json
+            with open(build_info_path, "w", encoding="utf-8") as f:
+                json.dump(build_info, f, indent=2, sort_keys=True)
+
+            logger.debug(f"Build info written to: {build_info_path}")
+            return build_info_path
+
+        except Exception as e:
+            logger.warning(f"Failed to generate build_info.json: {e}")
             return None
 
     # --------------------------------------------------------------

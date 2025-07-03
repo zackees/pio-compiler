@@ -16,6 +16,7 @@ class PioCompiler:
         fast_mode: bool = False,
         disable_auto_clean: bool = False,
         force_rebuild: bool = False,
+        info_mode: bool = False,
     ) -> None:
         """Create a new *PioCompiler* instance.
 
@@ -41,6 +42,9 @@ class PioCompiler:
             When *True*, forces a full clean rebuild by running 'platformio run
             --target clean' before compilation. This removes all build artifacts
             and starts fresh.
+        info_mode:
+            When *True*, enables generation of optimization reports and build
+            information files after successful compilation.
         """
 
         from .compiler import PioCompilerImpl
@@ -51,6 +55,7 @@ class PioCompiler:
             fast_mode=fast_mode,
             disable_auto_clean=disable_auto_clean,
             force_rebuild=force_rebuild,
+            info_mode=info_mode,
         )
 
     def initialize(self) -> Result:
@@ -90,6 +95,30 @@ class PioCompiler:
     def get_pio_cache_dir(self, example: Path | str) -> str | None:
         """Get the PlatformIO cache directory path that will be used for this build."""
         return self.__impl.get_pio_cache_dir(example)
+
+    def generate_optimization_report(
+        self, project_dir: Path, example_path: Path
+    ) -> Path | None:
+        """Generate optimization report and return the path to the report file."""
+        return self.__impl.generate_optimization_report(project_dir, example_path)
+
+    def generate_build_info(
+        self, project_dir: Path, example_path: Path, build_start_time: float
+    ) -> Path | None:
+        """Generate build_info.json file and return the path to the file."""
+        return self.__impl.generate_build_info(
+            project_dir, example_path, build_start_time
+        )
+
+    @property
+    def fast_mode(self) -> bool:
+        """Return True if fast mode is enabled."""
+        return self.__impl.fast_mode
+
+    @property
+    def _work_dir(self) -> Path:
+        """Return the work directory path."""
+        return self.__impl._work_dir
 
 
 __all__ = [
