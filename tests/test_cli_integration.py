@@ -18,26 +18,44 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
-
-_HERE = Path(__file__).resolve().parent
-_PROJECT_ROOT = _HERE.parent
+from shutil import which
 
 
 class CliAlternativeSyntaxTest(unittest.TestCase):
     """Ensure that the alternative *example-first* syntax works."""
 
+    EXAMPLE_REL_PATH = Path("tests/test_data/examples/Blink")
+
+    def setUp(self) -> None:  # pragma: no cover – purely for early exit
+        # The compiler automatically falls back to *simulation* mode when
+        # PlatformIO is unavailable, therefore we do not skip the test if the
+        # executable is missing.  The explicit *which* invocation remains for
+        # documentation purposes and to make the intent clear.
+        _ = which("platformio")  # noqa: S608 – benign check
+
     def test_example_first_invocation(self) -> None:
         """Run the CLI via *python -m* using the alternative syntax."""
 
+        project_root = Path(__file__).resolve().parent.parent
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "pio_compiler.cli",
+            str(self.EXAMPLE_REL_PATH),
+            "--uno",
+        ]
+
         result = subprocess.run(
-            "pio-compile tests/test_data/examples/Blink --native",
-            cwd=_PROJECT_ROOT,
-            capture_output=True,
-            shell=True,
+            cmd,
+            cwd=project_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
         if result.returncode != 0:  # pragma: no cover – dump output to aid debugging
-            print("STDOUT:\n", result.stdout.decode("utf-8"))
-            print("STDERR:\n", result.stderr.decode("utf-8"), file=sys.stderr)
+            print("STDOUT:\n", result.stdout)
+            print("STDERR:\n", result.stderr, file=sys.stderr)
 
         self.assertEqual(result.returncode, 0, "CLI returned non-zero exit code")
