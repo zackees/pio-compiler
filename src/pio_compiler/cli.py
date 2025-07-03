@@ -89,7 +89,7 @@ def _print_startup_banner(
     fast_dir: Path | None,
     fast_hit: bool | None,
     cache_dir: str | None,
-    rebuild: bool,
+    clean: bool,
     pio_cache_dir: str | None = None,
 ) -> None:  # noqa: D401
     """Print a colourful npm-style banner summarising build configuration."""
@@ -101,14 +101,14 @@ def _print_startup_banner(
         status_colour = _GREEN if fast_hit else _YELLOW
         status = "hit" if fast_hit else "miss"
         print(f"  {status_colour}{ROCKET} Fast cache [{status}]: {fast_dir}{_RESET}")
-    elif rebuild:
-        print(f"  {_MAGENTA}{HAMMER} Full rebuild – no incremental cache{_RESET}")
+    elif clean:
+        print(f"  {_MAGENTA}{HAMMER} Full clean build – no incremental cache{_RESET}")
 
     # Show PlatformIO build cache directory with color coding
     if pio_cache_dir is not None:
-        # Yellow for rebuild (clean build), Green for incremental build
-        cache_colour = _YELLOW if rebuild else _GREEN
-        cache_status = "clean build" if rebuild else "incremental"
+        # Yellow for clean build, Green for incremental build
+        cache_colour = _YELLOW if clean else _GREEN
+        cache_status = "clean build" if clean else "incremental"
         print(
             f"  {cache_colour}{PACKAGE} PIO cache [{cache_status}]: {pio_cache_dir}{_RESET}"
         )
@@ -152,7 +152,7 @@ def _build_argument_parser() -> argparse.ArgumentParser:
             "  tpo examples/Blink --uno           # Build Blink.ino for Arduino UNO\n"
             "  tpo examples/Blink --native       # Build for the host (native) platform\n"
             "  tpo project/Sketch --native --fast\n"
-            "  tpo project/Sketch --native --rebuild --cache .pio_cache\n\n"
+            "  tpo project/Sketch --native --clean --cache .pio_cache\n\n"
             "Multiple sketches can be supplied using repeated --src flags or by listing them "
             "sequentially before the platform flag."
         ),
@@ -198,7 +198,7 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     )
     # ------------------------------------------------------------------
     # Cache directory is *independent* of build mode.  Users may combine
-    # --cache with either fast (default) **or** --rebuild.
+    # --cache with either fast (default) **or** --clean.
     # ------------------------------------------------------------------
 
     parser.add_argument(
@@ -217,13 +217,13 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     # Build mode selection – exactly **one** of the following may be chosen.
     mutex = parser.add_mutually_exclusive_group()
 
-    # (1) Force a *full* rebuild – inverse of the default *fast* mode.
+    # (1) Force a *full* clean build – inverse of the default *fast* mode.
     mutex.add_argument(
-        "--rebuild",
-        dest="rebuild",
+        "--clean",
+        dest="clean",
         action="store_true",
         help=(
-            "Force a full clean rebuild by running 'platformio run --target clean' "
+            "Force a full clean build by running 'platformio run --target clean' "
             "before compilation. This removes all build artifacts and starts fresh."
         ),
     )
@@ -254,7 +254,7 @@ def _run_cli(arguments: List[str]) -> int:
     # ------------------------------------------------------------------
     # Derive the *fast* boolean according to the selected build mode.  The
     # precedence order is:
-    #   1. --rebuild   → fast = False
+    #   1. --clean     → fast = False
     #   2. --cache     → fast = False (cannot combine with fast mode)
     #   3. --fast flag → fast = True  (legacy alias, already default)
     #   4. default     → fast = True
@@ -262,7 +262,7 @@ def _run_cli(arguments: List[str]) -> int:
 
     fast_mode: bool = True  # default – incremental fast builds
 
-    if getattr(ns, "rebuild", False):
+    if getattr(ns, "clean", False):
         fast_mode = False
     elif getattr(ns, "fast_flag", False):
         fast_mode = True
@@ -421,7 +421,7 @@ def _run_cli(arguments: List[str]) -> int:
             work_dir=fast_dir if fast_mode else None,
             fast_mode=fast_mode,
             disable_auto_clean=False,
-            force_rebuild=getattr(ns, "rebuild", False),
+            force_rebuild=getattr(ns, "clean", False),
         )
         init_result = compiler.initialize()
         if not init_result.ok:
@@ -446,7 +446,7 @@ def _run_cli(arguments: List[str]) -> int:
                 fast_dir=fast_dir,
                 fast_hit=fast_hit,
                 cache_dir=ns.cache,
-                rebuild=False,
+                clean=False,
                 pio_cache_dir=pio_cache_dir,
             )
         else:
@@ -455,7 +455,7 @@ def _run_cli(arguments: List[str]) -> int:
                 fast_dir=None,
                 fast_hit=None,
                 cache_dir=ns.cache,
-                rebuild=True,
+                clean=True,
                 pio_cache_dir=pio_cache_dir,
             )
 

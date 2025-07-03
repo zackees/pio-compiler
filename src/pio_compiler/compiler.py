@@ -334,9 +334,22 @@ class PioCompilerImpl:
         # Real build – invoke ``platformio`` and capture its output.
         # ------------------------------------------------------------------
 
-        # First, handle force rebuild by running clean if requested
+        # First, handle force rebuild by cleaning unconditionally if requested
         if self.force_rebuild:
-            logger.debug("Force rebuild requested - running clean first")
+            logger.debug("Force clean build requested - cleaning all build artifacts")
+
+            # Clean the PlatformIO build directory unconditionally
+            pio_build_dir = project_dir / ".pio"
+            if pio_build_dir.exists():
+                logger.debug("Removing PlatformIO build directory: %s", pio_build_dir)
+                try:
+                    shutil.rmtree(pio_build_dir)
+                    logger.debug("Successfully removed PlatformIO build directory")
+                except Exception as e:
+                    logger.warning("Failed to remove PlatformIO build directory: %s", e)
+                    # Continue with build anyway
+
+            # Also run platformio clean command for any additional cleanup
             clean_cmd = [
                 pio_executable,
                 "run",

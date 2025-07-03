@@ -29,7 +29,7 @@ class ComplexProjectTestCase(unittest.TestCase):
         project_root = Path(__file__).resolve().parent.parent.parent
 
         # Use the CLI command that users would actually run
-        cmd = f"uv run pic --src {self.BLINK_EXAMPLE} native"
+        cmd = f"uv run pic {self.BLINK_EXAMPLE} --native"
 
         self.logger.info(f"Running command: {cmd}")
 
@@ -80,7 +80,7 @@ class ComplexProjectTestCase(unittest.TestCase):
         project_root = Path(__file__).resolve().parent.parent.parent
 
         # Use the CLI command that users would actually run
-        cmd = f"uv run pic --src {self.LUMINESCENT_GRAND_EXAMPLE} native"
+        cmd = f"uv run pic {self.LUMINESCENT_GRAND_EXAMPLE} --native"
 
         self.logger.info(f"Running command: {cmd}")
 
