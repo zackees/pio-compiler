@@ -40,7 +40,7 @@ disable = [
 profile = "black"
 
 [project.scripts]
-poi-compiler = "pio_compiler.cli:main"
+pio-compile = "pio_compiler.cli:main"
 
 [project.optional-dependencies]
 dev = [

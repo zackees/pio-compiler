@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from typing import List
 
 from pio_compiler import PioCompiler, Platform
@@ -30,6 +32,18 @@ configure_logging()
 # status messages.  The CLI still uses *print* for user-facing output so that
 # scripts expecting *stdout* messages continue to work unchanged.
 logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------
+# *CLIArguments* – typed container for parsed command-line options.
+# ----------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class CLIArguments:
+    """Structured representation of user-supplied CLI arguments."""
+
+    platform: str
+    src: list[str]
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -58,13 +72,68 @@ def _build_argument_parser() -> argparse.ArgumentParser:
 def _run_cli(arguments: List[str]) -> int:
     """Internal helper that contains the real CLI implementation."""
 
+    # ------------------------------------------------------------------
+    # Support *alternative* call style:  ``pio-compile <example> --native``
+    # ------------------------------------------------------------------
+    # Historically the CLI expected the *platform* as **positional** first
+    # followed by one or more ``--src`` flags.  Users, however, may find the
+    # more natural order "*example first – platform second*" easier to
+    # remember.  To preserve backwards-compatibility **and** accept the new
+    # order we perform a lightweight *pre-processing* step that detects the
+    # pattern and rewrites the argument list accordingly before handing it
+    # to the regular parser.
+
+    def _rewrite_alt_syntax(argv: List[str]) -> List[str]:
+        """Return *argv* rewritten into the canonical format if needed.
+
+        The *alternative* syntax is recognised when **no** "--src" flag is
+        present *and* at least one argument starts with "--".  The first
+        such "--<platform>" token is interpreted as the *platform* flag.
+        All *non* dash-prefixed tokens are treated as *source* paths.  The
+        function converts the token sequence into the canonical form
+
+            <platform> --src <path1> --src <path2> …
+
+        Compatible with the existing argument parser.
+        """
+
+        if "--src" in argv:
+            # Already in canonical form – nothing to do.
+            return argv
+
+        platform_name: str | None = None
+        src_paths: list[str] = []
+
+        for token in argv:
+            if token.startswith("--") and token != "--src" and platform_name is None:
+                # Treat *first* dash-prefixed token as platform selector.
+                platform_name = token.lstrip("-")
+            else:
+                src_paths.append(token)
+
+        if platform_name is None:
+            # No recognisable alternative syntax – return unchanged.
+            return argv
+
+        # Build canonical argv.
+        new_argv: list[str] = [platform_name]
+        for path in src_paths:
+            new_argv.extend(["--src", path])
+
+        return new_argv
+
+    arguments = _rewrite_alt_syntax(arguments)
+
     parser = _build_argument_parser()
     ns = parser.parse_args(arguments)
+
+    # Convert argparse.Namespace → dataclass instance for type-safety.
+    cli_args = CLIArguments(platform=ns.platform, src=ns.src)
 
     # ------------------------------------------------------------------
     # Create compiler instance for the requested platform.
     # ------------------------------------------------------------------
-    platform = Platform(ns.platform)
+    platform = Platform(cli_args.platform)
     logger.debug("Initialising compiler for platform %s", platform.name)
     compiler = PioCompiler(platform)
 
@@ -74,11 +143,13 @@ def _run_cli(arguments: List[str]) -> int:
         return 1
 
     # Compile requested examples
-    logger.debug("Starting compilation for %d example(s)", len(ns.src))
-    streams = compiler.multi_compile(ns.src)
+    src_paths = [Path(p) for p in cli_args.src]
+
+    logger.debug("Starting compilation for %d example(s)", len(src_paths))
+    streams = compiler.multi_compile(src_paths)
 
     exit_code = 0
-    for src_path, future in zip(ns.src, streams):
+    for src_path, future in zip(src_paths, streams):
         # Resolve the compilation *Future* – this yields the actual
         # :class:`CompilerStream` instance.
         try:
