@@ -574,18 +574,38 @@ def _run_cli(arguments: List[str]) -> int:
         # Migrate any old hash-based cache directories to new format
         cache_manager.migrate_old_cache_entries()
 
+    # Parse sketch dependencies from all source files
+    sketch_dependencies = []
+    for src_path in args.src:
+        sketch_path = Path(src_path).expanduser().resolve()
+        sketch_deps = _parse_sketch_dependencies(sketch_path)
+        sketch_dependencies.extend(sketch_deps)
+
+    # Combine CLI --lib arguments with sketch dependencies (CLI takes precedence)
+    all_turbo_libs = list(
+        args.turbo_libs or []
+    )  # Start with CLI arguments, handle None case
+    for dep in sketch_dependencies:
+        if dep not in all_turbo_libs:
+            all_turbo_libs.append(dep)
+
+    if sketch_dependencies:
+        logger.info(f"Found sketch dependencies: {sketch_dependencies}")
+    if all_turbo_libs:
+        logger.info(f"Using turbo dependencies: {all_turbo_libs}")
+
     compilers: list[tuple[str, PioCompiler]] = []
 
     for plat_name in args.platforms:
         # For native, use the string name to get the special native configuration
         # For other platforms, try to get board configuration first
         if plat_name == "native":
-            plat_obj = Platform(plat_name, turbo_dependencies=args.turbo_libs)
+            plat_obj = Platform(plat_name, turbo_dependencies=all_turbo_libs)
         else:
             from pio_compiler.boards import get_board
 
             board = get_board(plat_name)
-            plat_obj = Platform(board, turbo_dependencies=args.turbo_libs)
+            plat_obj = Platform(board, turbo_dependencies=all_turbo_libs)
 
         if args.cache:
             from pathlib import Path as _Path
@@ -617,7 +637,7 @@ def _run_cli(arguments: List[str]) -> int:
         if fast_mode and cache_manager:
             src_path = Path(args.src[0]).expanduser().resolve()
             cache_entry = cache_manager.get_cache_entry(
-                src_path, plat_name, plat_obj.platformio_ini or "", args.turbo_libs
+                src_path, plat_name, plat_obj.platformio_ini or "", all_turbo_libs
             )
 
             fast_dir = cache_entry.cache_dir
@@ -798,6 +818,72 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:  # pragma: no cover – user interruption
         print("Interrupted by user – aborting.")
         return 1
+
+
+def _parse_sketch_dependencies(sketch_path: Path) -> list[str]:
+    """Parse dependencies from sketch header comments.
+
+    Looks for embedded dependencies in the first 5 lines of a sketch file:
+    /// SKETCH-DEPENDENCIES-START
+    /// dependencies = ["FastLED", "ArduinoJson"]
+    /// SKETCH-DEPENDENCIES-END
+
+    Args:
+        sketch_path: Path to the sketch file (.ino) or directory containing sketch
+
+    Returns:
+        List of dependency names found in the sketch header
+    """
+    dependencies = []
+
+    try:
+        # If it's a directory, look for .ino files
+        if sketch_path.is_dir():
+            ino_files = list(sketch_path.glob("*.ino"))
+            if not ino_files:
+                return dependencies
+            sketch_file = ino_files[0]  # Use the first .ino file found
+        else:
+            sketch_file = sketch_path
+
+        # Only process .ino files
+        if not sketch_file.suffix.lower() == ".ino":
+            return dependencies
+
+        # Read the first 5 lines of the sketch file
+        with open(sketch_file, "r", encoding="utf-8") as f:
+            lines = []
+            for _ in range(5):
+                try:
+                    line = next(f).strip()
+                    lines.append(line)
+                except StopIteration:
+                    break
+
+        # Look for the dependency block
+        in_dependency_block = False
+        for line in lines:
+            if line == "/// SKETCH-DEPENDENCIES-START":
+                in_dependency_block = True
+                continue
+            elif line == "/// SKETCH-DEPENDENCIES-END":
+                break
+            elif in_dependency_block and line.startswith("/// dependencies = "):
+                # Parse the dependencies list
+                deps_str = line[len("/// dependencies = ") :].strip()
+                if deps_str.startswith("[") and deps_str.endswith("]"):
+                    # Simple parsing of the list format
+                    deps_str = deps_str[1:-1]  # Remove brackets
+                    for dep in deps_str.split(","):
+                        dep = dep.strip().strip('"').strip("'")
+                        if dep:
+                            dependencies.append(dep)
+                break
+
+    except Exception as e:
+        logger.debug(f"Error parsing sketch dependencies from {sketch_path}: {e}")
+
+    return dependencies
 
 
 if __name__ == "__main__":

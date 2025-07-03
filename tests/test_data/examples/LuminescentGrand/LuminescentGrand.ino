@@ -1,3 +1,7 @@
+/// SKETCH-DEPENDENCIES-START
+/// dependencies = ["FastLED"]
+/// SKETCH-DEPENDENCIES-END
+
 /// This is a work in progress showcasing a complex MIDI keyboard
 /// visualizer.
 /// To run this compiler use
