@@ -98,6 +98,8 @@ build_flags =
             "platform": "atmelavr",
             "board": "uno",
             "framework": "arduino",
+            # Include FastLED so that example sketches compile without extra configuration.
+            "lib_deps": "FastLED",
         },
         # Additional aliases can be added here as the need arises.
     }

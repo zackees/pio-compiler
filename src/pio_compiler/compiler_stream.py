@@ -17,10 +17,9 @@ class CompilerStream:
 
     Notes
     -----
-    *  ``is_done`` returns *True* **while** there is still data pending
-       or the underlying process is running.  Only when *all* output has
-       been consumed **and** the process exited will the method return
-       *False*.
+    *  ``is_done`` returns *True* **once** the compilation process exited
+       **and** all buffered output has been consumed.  While the build is
+       ongoing or data remains in the queue the method returns *False*.
     *  All **stderr** is redirected to **stdout** – users only deal with
        a *single* combined stream as requested.
     """
@@ -64,18 +63,14 @@ class CompilerStream:
             return None
 
     def is_done(self) -> bool:
-        """Return *True* **while** the compilation is still active.
+        """Return *True* when the build completed and no further output is pending."""
 
-        The method mirrors the slightly counter‐intuitive behaviour
-        expressed in the user requirements: it returns *False* only when
-        the subprocess finished **and** all output has been consumed.
-        """
-
-        # There is still data to read -> *not* done yet.
+        # Not done if data still in queue
         if not self._queue.empty():
-            return True
-        # Queue is empty – rely on subprocess status.
-        return not self._process_done
+            return False
+
+        # For subprocess-backed streams, *done* once the process finished
+        return self._process_done
 
     # ------------------------------------------------------------------
     # Iterator helpers – enable ``for line in stream: …`` style usage.

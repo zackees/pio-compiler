@@ -165,25 +165,13 @@ class PioCompilerImpl:
                 self.platform.platformio_ini or "", encoding="utf-8"
             )
 
-        # The real PlatformIO build can be *expensive* and requires external
-        # tools.  To make the library usable in restrictive environments (CI
-        # sandboxes, unit-test runners, …) we fall back to a *simulation* mode
-        # when the dedicated environment variable is set *or* when the
-        # platformio executable cannot be found.
-        simulate_env = self._env(self._SIMULATE_ENV)
-        simulate = bool(
-            simulate_env and simulate_env not in {"0", "false", "False", "no", "NO"}
-        )
+        # Ensure that the *platformio* executable is present – without it the
+        # compiler cannot proceed.  Fail early with a clear message instead of
+        # silently falling back to *simulation*.
         pio_executable = shutil.which("platformio")
-        if pio_executable is None:
-            simulate = True
-
-        if simulate:
-            logger.info("Simulation mode active – returning fake CompilerStream")
-            # Return a *fake* but plausible looking result.
-            return CompilerStream(
-                popen=None, preloaded_output="[simulated] platformio run …"
-            )
+        assert (
+            pio_executable is not None
+        ), "PlatformIO executable not found in PATH – cannot compile."
 
         # ------------------------------------------------------------------
         # Real build – invoke ``platformio`` and capture its output.
