@@ -2,8 +2,7 @@ import shutil
 import unittest
 from pathlib import Path
 
-from pio_compiler import Platform
-from pio_compiler.compiler import PioCompilerImpl
+from pio_compiler import PioCompiler, Platform
 
 
 class NativeCompileTest(unittest.TestCase):
@@ -24,7 +23,7 @@ class NativeCompileTest(unittest.TestCase):
 
     def test_compile_blink_native(self) -> None:  # noqa: D401
         platform = Platform("native")  # Use built-in default configuration
-        compiler = PioCompilerImpl(platform)
+        compiler = PioCompiler(platform)
 
         init_res = compiler.initialize()
         if not init_res.ok:
@@ -38,7 +37,7 @@ class NativeCompileTest(unittest.TestCase):
 
         # The compiler should have generated a *wrapper* C++ file so that
         # PlatformIO can compile the sketch in a native environment.
-        project_dir = compiler._work_dir / "Blink"  # Matches example.stem
+        project_dir = compiler.work_dir() / "Blink"  # Matches example.stem
         wrapper = project_dir / "src" / "_pio_main.cpp"
         self.assertTrue(wrapper.exists(), f"Expected wrapper not found: {wrapper}")
 

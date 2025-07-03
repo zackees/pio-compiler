@@ -19,6 +19,9 @@ class PioCompiler:
     def multi_compile(self, examples: list[Path]) -> list[CompilerStream]:
         return self.__impl.multi_compile(examples)
 
+    def work_dir(self) -> Path:
+        return self.__impl._work_dir
+
 
 __all__ = [
     "Platform",
