@@ -79,10 +79,16 @@ def _cleanup_temp_root() -> None:  # pragma: no cover – exercised implicitly
         return
 
     try:
-        shutil.rmtree(_TEMP_ROOT)
+        if _TEMP_ROOT.exists():
+            is_empty = not any(_TEMP_ROOT.iterdir())
+            if not is_empty:
+                print(f"\nWarning: {_TEMP_ROOT} had files in it.")
+            shutil.rmtree(_TEMP_ROOT)
     except FileNotFoundError:
         # The directory may already be gone if *cleanup* was called manually.
         pass
+    except PermissionError as e:
+        print(f"\nWarning: exception while cleaning up {_TEMP_ROOT}: {e}")
     finally:
         _TEMP_ROOT = None
 
