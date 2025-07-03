@@ -32,6 +32,8 @@ bash test
 ```
 This script invokes **uv run pytest** (parallel with xdist). All tests must pass before declaring completion.
 
+• Tests that run longer than 5 seconds belong in `tests/unit`; shorter tests go in `tests/integration`.
+
 ### CLI Testing Convention
 When writing *integration* or *end-to-end* tests for the command-line interface **always** invoke the *console-script* entry point, e.g.:
 
