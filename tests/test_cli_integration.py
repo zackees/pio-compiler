@@ -3,7 +3,7 @@
 The tests exercise the *alternative* argument syntax that allows users to
 call the CLI as::
 
-    pio-compile <example> --uno
+    pio-compile tests/test_data/examples/Blink --native
 
 The order differs from the canonical form (*platform first, sources via
 ``--src`` flags*) that the original implementation expected.  A light‐weight
@@ -34,16 +34,18 @@ class CliAlternativeSyntaxTest(unittest.TestCase):
         _ = which("platformio")  # noqa: S608 – benign check
 
     def test_example_first_invocation(self) -> None:
-        """Run the CLI via *python -m* using the alternative syntax."""
+        """Run the CLI via the *console-script* entry point using the alternative syntax."""
 
         project_root = Path(__file__).resolve().parent.parent
 
+        # Call the *console-script* entry point that is installed via
+        # ``[project.scripts]`` in *pyproject.toml*.  Using the actual shell
+        # command mirrors real-world usage much closer than ``python -m`` and
+        # ensures that the packaging metadata remains correct.
         cmd = [
-            sys.executable,
-            "-m",
-            "pio_compiler.cli",
+            "pio-compile",
             str(self.EXAMPLE_REL_PATH),
-            "--uno",
+            "--native",
         ]
 
         result = subprocess.run(

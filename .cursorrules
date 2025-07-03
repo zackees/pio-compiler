@@ -32,6 +32,15 @@ bash test
 ```
 This script invokes **uv run pytest** (parallel with xdist). All tests must pass before declaring completion.
 
+### CLI Testing Convention
+When writing *integration* or *end-to-end* tests for the command-line interface **always** invoke the *console-script* entry point, e.g.:
+
+```bash
+pio-compile tests/test_data/examples/Blink --native
+```
+
+Using the real shell command ensures that the packaging metadata (entry-points) remains correct and avoids brittle invocations such as `python -m pio_compiler.cli`.
+
 ## Pre-finish checklist
 Before marking a task as finished you **MUST** run:
 ```bash
