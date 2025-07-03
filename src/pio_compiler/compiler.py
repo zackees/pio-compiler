@@ -190,11 +190,14 @@ class PioCompilerImpl:
         # ------------------------------------------------------------------
         cmd = [pio_executable, "run", "-d", str(project_dir)]
         logger.debug("Executing command: %s", cmd)
+        # Use default buffering for the subprocess pipe.  Passing *bufsize=1*
+        # triggers a *RuntimeWarning* on Python ≥3.9 when the stream is opened
+        # in *binary* mode (the default when *text* is *False*).  Default
+        # buffering avoids the warning while still providing timely output.
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # merge stderr into stdout
-            bufsize=1,
         )
 
         return CompilerStream(popen=proc)
