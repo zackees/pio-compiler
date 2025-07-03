@@ -41,6 +41,8 @@ pio-compile tests/test_data/examples/Blink --native
 
 Using the real shell command ensures that the packaging metadata (entry-points) remains correct and avoids brittle invocations such as `python -m pio_compiler.cli`.
 
+• Do **not** build argument lists like `cmd_args: list[str]` for `subprocess.run`. Instead, supply the *entire* command line as a single **string** and execute it with `shell=True` if needed. This keeps the tests closer to how end-users will interact with the tool.
+
 ## Pre-finish checklist
 Before marking a task as finished you **MUST** run:
 ```bash

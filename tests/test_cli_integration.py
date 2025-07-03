@@ -34,7 +34,7 @@ class CliAlternativeSyntaxTest(unittest.TestCase):
         _ = which("platformio")  # noqa: S608 – benign check
 
     def test_example_first_invocation(self) -> None:
-        """Run the CLI via the *console-script* entry point using the alternative syntax."""
+        """Run the CLI via the *console-script* entry point using the alternative syntax and a *full* shell command string."""
 
         project_root = Path(__file__).resolve().parent.parent
 
@@ -42,15 +42,12 @@ class CliAlternativeSyntaxTest(unittest.TestCase):
         # ``[project.scripts]`` in *pyproject.toml*.  Using the actual shell
         # command mirrors real-world usage much closer than ``python -m`` and
         # ensures that the packaging metadata remains correct.
-        cmd = [
-            "pio-compile",
-            str(self.EXAMPLE_REL_PATH),
-            "--native",
-        ]
+        cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --native"
 
         result = subprocess.run(
             cmd,
             cwd=project_root,
+            shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
