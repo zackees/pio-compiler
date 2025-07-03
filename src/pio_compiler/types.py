@@ -71,7 +71,7 @@ src_dir = src
 platform = platformio/native
 
 lib_deps =
-    FastLED
+    https://github.com/fastled/fastled
 
 ; Allow libraries that do not explicitly declare compatibility with the
 ; *platformio/native* platform so that FastLED becomes available even though

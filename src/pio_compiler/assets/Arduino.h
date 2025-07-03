@@ -42,20 +42,17 @@ int analogRead(uint8_t pin);
 void analogReference(uint8_t mode);
 void analogWrite(uint8_t pin, int val);
 
-// Timing functions  
+// Timing functions - declare but don't conflict with FastLED  
+// Use FastLED's expected signatures when available
 #ifndef FASTLED_STUB_IMPL
-unsigned long millis(void);
-unsigned long micros(void);
-void delay(unsigned long ms);
+uint32_t millis(void);
+uint32_t micros(void);
+void delay(int ms);
 void delayMicroseconds(unsigned int us);
 #endif
 
-// Random functions
-#ifndef FASTLED_STUB_IMPL
-long random(long);
-long random(long, long);
+// Don't declare random functions in extern "C" to avoid conflicts
 void randomSeed(unsigned long);
-#endif
 
 // Map function
 long map(long, long, long, long, long);
@@ -134,6 +131,10 @@ public:
 #define FASTLED_UNUSED(x) ((void)(x))
 #endif
 
+// Random functions (C++ overloads outside extern "C")
+long random(long max);
+long random(long min, long max);
+
 // Math functions (templates must be outside extern "C")
 template<typename T> constexpr T min(T a, T b) { return (a < b) ? a : b; }
 template<typename T> constexpr T max(T a, T b) { return (a > b) ? a : b; }
@@ -194,6 +195,7 @@ public:
 };
 
 extern HardwareSerial Serial;
+extern HardwareSerial Serial1;  // For MIDI communication
 
 // Interrupts (no-op for native)
 #define cli()

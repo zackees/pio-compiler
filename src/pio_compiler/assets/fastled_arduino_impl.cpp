@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 
 // FastLED compatibility macros
 #ifndef FL_UNUSED
@@ -62,21 +64,6 @@ void yield(void) {
     usleep(1);
 }
 
-// Random functions for Arduino compatibility
-long random(long max) {
-    init_time();
-    return rand() % max;
-}
-
-long random(long min, long max) {
-    init_time();
-    return min + (rand() % (max - min));
-}
-
-void randomSeed(unsigned long seed) {
-    srand(seed);
-}
-
 // Pin functions that FastLED sensors need
 void pinMode(uint8_t pin, uint8_t mode) {
     // No-op on native platform
@@ -113,4 +100,88 @@ void analogWrite(uint8_t pin, int val) {
     (void)val;
 }
 
-} // extern "C" 
+void randomSeed(unsigned long seed) {
+    srand(seed);
+}
+
+} // extern "C"
+
+// Serial instances for Arduino compatibility
+class HardwareSerial {
+public:
+    void begin(unsigned long baud) {
+        // No-op for native platform, just print to indicate it's working
+        printf("Serial.begin(%lu) - Native platform\n", baud);
+    }
+    
+    void end() {}
+    int available() { return 0; }
+    int read() { return -1; }
+    int peek() { return -1; }
+    void flush() {}
+    
+    size_t write(uint8_t byte) {
+        putchar(byte);
+        return 1;
+    }
+    
+    size_t write(const char *str) {
+        if (str) printf("%s", str);
+        return str ? strlen(str) : 0;
+    }
+    
+    size_t write(const uint8_t *buffer, size_t size) {
+        if (buffer) {
+            for (size_t i = 0; i < size; i++) {
+                putchar(buffer[i]);
+            }
+        }
+        return size;
+    }
+    
+    void print(const char str[]) { if (str) printf("%s", str); }
+    void print(char c) { putchar(c); }
+    void print(int n, int base = 10) { 
+        if (base == 16) printf("%x", n);
+        else printf("%d", n);
+    }
+    void print(unsigned int n, int base = 10) { 
+        if (base == 16) printf("%x", n);
+        else printf("%u", n);
+    }
+    void print(long n, int base = 10) { 
+        if (base == 16) printf("%lx", n);
+        else printf("%ld", n);
+    }
+    void print(unsigned long n, int base = 10) { 
+        if (base == 16) printf("%lx", n);
+        else printf("%lu", n);
+    }
+    void print(double n, int digits = 2) { printf("%.*f", digits, n); }
+    
+    void println(const char str[]) { print(str); putchar('\n'); }
+    void println(char c) { print(c); putchar('\n'); }
+    void println(int n, int base = 10) { print(n, base); putchar('\n'); }
+    void println(unsigned int n, int base = 10) { print(n, base); putchar('\n'); }
+    void println(long n, int base = 10) { print(n, base); putchar('\n'); }
+    void println(unsigned long n, int base = 10) { print(n, base); putchar('\n'); }
+    void println(double n, int digits = 2) { print(n, digits); putchar('\n'); }
+    void println(void) { putchar('\n'); }
+    
+    operator bool() { return true; }
+};
+
+// Global Serial instances
+HardwareSerial Serial;
+HardwareSerial Serial1;
+
+// Random functions using C++ overloading (outside extern "C")
+long random(long max) {
+    init_time();
+    return rand() % max;
+}
+
+long random(long min, long max) {
+    init_time();
+    return min + (rand() % (max - min));
+} 
