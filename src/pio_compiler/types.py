@@ -1,6 +1,11 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+
+# Import Board but use TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING, Any, Optional, Union
+
+if TYPE_CHECKING:
+    from .boards import Board
 
 
 @dataclass(slots=True)
@@ -9,12 +14,58 @@ class Platform:
 
     name: str
     platformio_ini: str | None = None
+    _board: "Board | None" = field(default=None, init=False)
+
+    def __init__(
+        self, name_or_board: Union[str, "Board"], platformio_ini: str | None = None
+    ):
+        """Create a Platform from either a string name or a Board object.
+
+        Args:
+            name_or_board: Either a string platform name or a Board object
+            platformio_ini: Optional platformio.ini content (ignored if Board is provided)
+        """
+        if isinstance(name_or_board, str):
+            # Create from string name
+            self.name = name_or_board
+            self.platformio_ini = platformio_ini
+            self._board = None
+        else:
+            # Create from Board object
+            from .boards import Board
+
+            if isinstance(name_or_board, Board):
+                self.name = name_or_board.board_name
+                self.platformio_ini = name_or_board.to_platformio_ini()
+                self._board = name_or_board
+            else:
+                raise TypeError(f"Expected str or Board, got {type(name_or_board)}")
+
+        # Call __post_init__ manually since we're overriding __init__
+        self.__post_init__()
+
+    @classmethod
+    def from_board(cls, board: "Board") -> "Platform":
+        """Create a Platform from a Board object.
+
+        Args:
+            board: Board object to create Platform from
+
+        Returns:
+            Platform instance with platformio_ini generated from the Board
+        """
+        return cls(board)
 
     def __post_init__(self) -> None:  # pragma: no cover
         if self.platformio_ini is None:
             # Populate with a minimal default so that the user can still build
             # with *native* or any other platform by name alone.
             self.platformio_ini = _default_platformio_ini(self.name)
+
+    @property
+    def board(self) -> "Board | None":
+        """Get the associated Board object if this Platform was created from a Board."""
+        return self._board
 
 
 @dataclass(slots=True)
