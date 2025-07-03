@@ -200,6 +200,7 @@ WEBTARGET = Board(
 
 NATIVE = Board(
     board_name="native",
+    real_board_name=None,  # Native platform doesn't need a board specification
     platform="platformio/native",
     build_flags=[
         "-DFASTLED_STUB_IMPL",

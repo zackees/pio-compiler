@@ -558,11 +558,15 @@ def _run_cli(arguments: List[str]) -> int:
     compilers: list[tuple[str, PioCompiler]] = []
 
     for plat_name in args.platforms:
-        # Try to get board configuration first, fallback to string name
-        from pio_compiler.boards import get_board
+        # For native, use the string name to get the special native configuration
+        # For other platforms, try to get board configuration first
+        if plat_name == "native":
+            plat_obj = Platform(plat_name)
+        else:
+            from pio_compiler.boards import get_board
 
-        board = get_board(plat_name)
-        plat_obj = Platform(board)
+            board = get_board(plat_name)
+            plat_obj = Platform(board)
 
         if args.cache:
             from pathlib import Path as _Path
