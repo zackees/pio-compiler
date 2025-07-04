@@ -1085,6 +1085,9 @@ def _run_cli(arguments: list[str]) -> int:
         successful_builds = [r for r in build_results if r.success]
         failed_builds = [r for r in build_results if not r.success]
 
+        # Calculate total time
+        total_time = sum(r.time_taken for r in build_results)
+
         # Print summary message
         if len(failed_builds) == 0:
             print(f"{_BOLD}{_GREEN}All Builds Succeed!{_RESET}")
@@ -1093,6 +1096,9 @@ def _run_cli(arguments: list[str]) -> int:
                 f"{_BOLD}{_YELLOW}{len(successful_builds)} Builds Passed, "
                 f"{len(failed_builds)} Builds failed to compile{_RESET}"
             )
+
+        # Print total time
+        print(f"{_BOLD}{_CYAN}Total time: {_YELLOW}{total_time:.2f}s{_RESET}")
 
         print()
         print(f"{_BOLD}{_CYAN}Build Info:{_RESET}")
