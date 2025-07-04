@@ -292,6 +292,52 @@ def _print_info_reports(
     print()  # Trailing newline
 
 
+def _print_project_info(
+    platform_name: str,
+    cache_dir: Path | None,
+    turbo_dependencies: list[str],
+) -> None:
+    """Print npm-style project info section with platform details and dependencies."""
+
+    # Project info header with gear emoji
+    header = f"{_BOLD}{_CYAN}{_sym('⚙️', '#')} Project Info{_RESET}"
+    print(header)
+
+    # Platform
+    platform_emoji = _sym("🎯", ">")
+    print(
+        f"  {_CYAN}{platform_emoji}{_RESET} Platform: {_YELLOW}{platform_name}{_RESET}"
+    )
+
+    # Platform cache destination
+    cache_emoji = _sym("📂", "[+]")
+    if cache_dir:
+        formatted_cache = _format_path_for_logging(cache_dir)
+        print(
+            f"  {_CYAN}{cache_emoji}{_RESET} Platform cache: {_YELLOW}{formatted_cache}{_RESET}"
+        )
+    else:
+        print(
+            f"  {_CYAN}{cache_emoji}{_RESET} Platform cache: {_YELLOW}temporary directory{_RESET}"
+        )
+
+    # Turbo Dependencies
+    deps_emoji = _sym("⚡", "*")
+    if turbo_dependencies:
+        print(
+            f"  {_GREEN}{deps_emoji}{_RESET} Turbo dependencies ({len(turbo_dependencies)}):"
+        )
+        for dep in turbo_dependencies:
+            check_emoji = _sym("✓", "+")
+            print(f"    {_GREEN}{check_emoji}{_RESET} {dep}")
+    else:
+        print(
+            f"  {_YELLOW}{deps_emoji}{_RESET} Turbo dependencies: {_YELLOW}none{_RESET}"
+        )
+
+    print()  # Trailing newline for separation
+
+
 # ----------------------------------------------------------------------
 # *CLIArguments* – typed container for parsed command-line options.
 # ----------------------------------------------------------------------
@@ -845,13 +891,10 @@ def _run_cli(arguments: List[str]) -> int:
             cache_hit = cache_entry.exists
 
             if cache_hit and incremental:
-                print(f"[FAST] Using cache directory: {cache_dir}")
+                pass
             elif not cache_hit and incremental:
-                print("[FAST] Cache miss – creating cache directory…")
                 cache_dir.mkdir(parents=True, exist_ok=True)
-                print(f"[FAST] Using cache directory: {cache_dir}")
             elif args.clean:
-                print(f"[CLEAN] Using cache directory: {cache_dir}")
                 cache_dir.mkdir(parents=True, exist_ok=True)
 
         compiler = PioCompiler(
@@ -897,14 +940,19 @@ def _run_cli(arguments: List[str]) -> int:
                 pio_cache_dir=pio_cache_dir,
             )
 
+        # Display project info after banner
+        _print_project_info(
+            platform_name=plat_name,
+            cache_dir=cache_dir,
+            turbo_dependencies=all_turbo_libs,
+        )
+
     # Compile for each platform
     src_paths = [Path(p) for p in args.src]
 
     exit_code = 0
 
     for plat_name, compiler in compilers:
-        logger.info("[PLATFORM] %s", plat_name)
-
         streams = compiler.multi_compile(src_paths)
 
         for src_path, future in zip(src_paths, streams):
@@ -921,7 +969,12 @@ def _run_cli(arguments: List[str]) -> int:
 
             formatted_path = _format_path_for_logging(src_path)
             logger.info("[BUILD] %s …", formatted_path)
-            print(f"[BUILD] {formatted_path} …")
+
+            # Use npm-style build message with hammer emoji
+            build_emoji = _sym("🔨", ">")
+            print(
+                f"{_CYAN}{build_emoji}{_RESET} Building: {_YELLOW}{formatted_path}{_RESET} …"
+            )
 
             # Consume stream output until completion.
             accumulated: list[str] = []
@@ -946,7 +999,8 @@ def _run_cli(arguments: List[str]) -> int:
             logger.info(
                 "[DONE] %s – captured %d bytes of output", formatted_path, total_bytes
             )
-            print(f"[DONE] {formatted_path} – captured {total_bytes} bytes of output\n")
+
+            # Don't print the old [DONE] message, it will be replaced by success/failure message below
 
             # --------------------------------------------------------------
             # Determine build success – propagate non-zero *exit codes* from
@@ -966,17 +1020,22 @@ def _run_cli(arguments: List[str]) -> int:
                 # No subprocess – consider this a failure because the build
                 # could not even start (e.g. invalid *example* path).
                 exit_code = 1
+                _print_error("Build could not start", formatted_path)
             elif proc_rc != 0:
                 # Underlying *platformio run* command failed – propagate.
                 logger.error(
                     "[FAILED] %s – platformio exited with %d", formatted_path, proc_rc
                 )
-                _print_error(
-                    "Platformio exited with non-zero exit code", formatted_path
-                )
+                _print_error(f"Build failed (exit code: {proc_rc})", formatted_path)
                 exit_code = 1
             else:
-                # Build succeeded – cleanup old cache entries if needed.
+                # Build succeeded
+                success_emoji = _sym("✅", "[OK]")
+                print(
+                    f"{_GREEN}{success_emoji} Build successful:{_RESET} {_YELLOW}{formatted_path}{_RESET}"
+                )
+
+                # cleanup old cache entries if needed.
                 if use_cache_manager and cache_manager is not None:
                     try:
                         # Clean up old cache entries to keep the cache manageable
