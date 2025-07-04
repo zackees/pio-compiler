@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import List
 
 from colorama import Fore, Style, init
 
@@ -293,15 +292,23 @@ def _print_info_reports(
 
 
 def _print_project_info(
+    project_path: Path,
     platform_name: str,
     cache_dir: Path | None,
     turbo_dependencies: list[str],
 ) -> None:
-    """Print npm-style project info section with platform details and dependencies."""
+    """Print npm-style project info section with project details and dependencies."""
 
     # Project info header with gear emoji
     header = f"{_BOLD}{_CYAN}{_sym('⚙️', '#')} Project Info{_RESET}"
     print(header)
+
+    # Project path
+    project_emoji = _sym("📁", "[>]")
+    formatted_project = _format_path_for_logging(project_path)
+    print(
+        f"  {_CYAN}{project_emoji}{_RESET} Project: {_YELLOW}{formatted_project}{_RESET}"
+    )
 
     # Platform
     platform_emoji = _sym("🎯", ">")
@@ -314,11 +321,11 @@ def _print_project_info(
     if cache_dir:
         formatted_cache = _format_path_for_logging(cache_dir)
         print(
-            f"  {_CYAN}{cache_emoji}{_RESET} Platform cache: {_YELLOW}{formatted_cache}{_RESET}"
+            f"  {_CYAN}{cache_emoji}{_RESET} Cache: {_YELLOW}{formatted_cache}{_RESET}"
         )
     else:
         print(
-            f"  {_CYAN}{cache_emoji}{_RESET} Platform cache: {_YELLOW}temporary directory{_RESET}"
+            f"  {_CYAN}{cache_emoji}{_RESET} Cache: {_YELLOW}temporary directory{_RESET}"
         )
 
     # Turbo Dependencies
@@ -590,7 +597,7 @@ def _expand_glob_patterns(patterns: list[str]) -> list[str]:
     return unique_paths
 
 
-def _run_cli(arguments: List[str]) -> int:
+def _run_cli(arguments: list[str]) -> int:
     """Internal helper that contains the real CLI implementation."""
 
     # Handle built-in help before any custom preprocessing so that users can
@@ -750,56 +757,6 @@ def _run_cli(arguments: List[str]) -> int:
 
     if args.cache:
 
-        def _with_build_cache_dir(base_ini: str | None, cache_dir: str) -> str:
-            """Return *base_ini* with a 'build_cache_dir' setting injected.
-
-            The function ensures that a ``[platformio]`` section exists and
-            adds or updates the ``build_cache_dir`` option accordingly.
-            """
-
-            if base_ini is None:
-                base_ini = ""
-
-            lines = base_ini.splitlines()
-
-            # Locate the [platformio] section.
-            try:
-                section_idx = next(
-                    idx
-                    for idx, line in enumerate(lines)
-                    if line.strip().lower() == "[platformio]"
-                )
-            except StopIteration:
-                # Section missing – prepend a new one.
-                header = f"[platformio]\nbuild_cache_dir = {cache_dir}\n"
-                # Keep existing INI content after an empty line for readability.
-                if lines:
-                    header += "\n"
-                return header + "\n".join(lines)
-
-            # Section exists – determine where it ends (next section header or EOF).
-            next_section_idx = next(
-                (
-                    idx
-                    for idx, line in enumerate(
-                        lines[section_idx + 1 :], start=section_idx + 1
-                    )
-                    if line.lstrip().startswith("[")
-                ),
-                len(lines),
-            )
-
-            # Scan for an existing build_cache_dir setting.
-            for idx in range(section_idx + 1, next_section_idx):
-                if lines[idx].split("=")[0].strip() == "build_cache_dir":
-                    lines[idx] = f"build_cache_dir = {cache_dir}"
-                    break
-            else:
-                # Not present – insert right after the section header.
-                lines.insert(section_idx + 1, f"build_cache_dir = {cache_dir}")
-
-            return "\n".join(lines) + ("\n" if base_ini.endswith("\n") else "")
-
         from pathlib import Path as _Path
 
         abs_cache_dir = str(_Path(args.cache).expanduser().resolve())
@@ -940,13 +897,6 @@ def _run_cli(arguments: List[str]) -> int:
                 pio_cache_dir=pio_cache_dir,
             )
 
-        # Display project info after banner
-        _print_project_info(
-            platform_name=plat_name,
-            cache_dir=cache_dir,
-            turbo_dependencies=all_turbo_libs,
-        )
-
     # Compile for each platform
     src_paths = [Path(p) for p in args.src]
 
@@ -969,6 +919,16 @@ def _run_cli(arguments: List[str]) -> int:
 
             formatted_path = _format_path_for_logging(src_path)
             logger.info("[BUILD] %s …", formatted_path)
+
+            # Display project info for this specific project
+            _print_project_info(
+                project_path=src_path,
+                platform_name=plat_name,
+                cache_dir=(
+                    compiler._work_dir if hasattr(compiler, "_work_dir") else None
+                ),
+                turbo_dependencies=all_turbo_libs,
+            )
 
             # Use npm-style build message with hammer emoji
             build_emoji = _sym("🔨", ">")
