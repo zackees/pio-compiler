@@ -149,3 +149,4 @@ uv.lock
 
 .tpo/
 .pio_cache/
+tmp.*
