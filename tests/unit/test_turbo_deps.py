@@ -81,8 +81,8 @@ class TurboDependencyManagerTest(TimedTestCase):
         self.assertEqual(result, [])
 
     @patch.object(TurboDependencyManager, "download_library")
-    def test_symlink_library(self, mock_download):
-        """Test library symlinking functionality."""
+    def test_extract_library(self, mock_download):
+        """Test library extraction functionality."""
         # Create a fake downloaded library
         fake_lib_dir = self.temp_dir / "fake_fastled"
         fake_lib_dir.mkdir()
@@ -90,25 +90,25 @@ class TurboDependencyManagerTest(TimedTestCase):
 
         mock_download.return_value = fake_lib_dir
 
-        # Test symlinking
-        result = self.turbo_manager.symlink_library("FastLED", self.project_dir)
+        # Test extraction
+        result = self.turbo_manager.extract_library("FastLED", self.project_dir)
 
         # Check that lib directory was created
         lib_dir = self.project_dir / "lib"
         self.assertTrue(lib_dir.exists())
 
-        # Check that symlink was created
-        symlink_path = lib_dir / "fastled"
-        self.assertTrue(symlink_path.exists())
-        self.assertEqual(result, symlink_path)
+        # Check that library was extracted
+        extract_path = lib_dir / "fastled"
+        self.assertTrue(extract_path.exists())
+        self.assertEqual(result, extract_path)
 
         # Verify mock was called
         mock_download.assert_called_once_with("FastLED")
 
-    @patch.object(TurboDependencyManager, "symlink_library")
-    def test_setup_multiple_dependencies(self, mock_symlink):
+    @patch.object(TurboDependencyManager, "extract_library")
+    def test_setup_multiple_dependencies(self, mock_extract):
         """Test setting up multiple turbo dependencies."""
-        mock_symlink.side_effect = [
+        mock_extract.side_effect = [
             self.project_dir / "lib" / "fastled",
             self.project_dir / "lib" / "arduino_json",
         ]
@@ -119,7 +119,7 @@ class TurboDependencyManagerTest(TimedTestCase):
         )
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(mock_symlink.call_count, 2)
+        self.assertEqual(mock_extract.call_count, 2)
 
 
 if __name__ == "__main__":

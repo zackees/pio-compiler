@@ -257,7 +257,9 @@ class GlobalCacheManager:
 
         for branch_name in branch_names:
             try:
-                zip_url = f"{github_url}/archive/refs/heads/{branch_name}.zip"
+                # Remove .git suffix from URL if present for archive download
+                clean_url = github_url.rstrip(".git")
+                zip_url = f"{clean_url}/archive/refs/heads/{branch_name}.zip"
                 commit_hash = self._get_commit_hash_from_zip_url(zip_url)
 
                 archive_path, archive_lock_path, dir_path, dir_lock_path, done_path = (
@@ -388,7 +390,9 @@ class GlobalCacheManager:
                     lock_path = old_version.parent / f"{old_version.name}.lock"
 
                     try:
-                        with FileLock(lock_path, timeout=0.1):  # Very short timeout
+                        with FileLock(
+                            lock_path, timeout=5.0
+                        ):  # Longer timeout to respect active compilations
                             # Remove the directory
                             shutil.rmtree(old_version)
 
@@ -457,7 +461,7 @@ class GlobalCacheManager:
                             lock_path = path.parent / f"{path.name}.lock"
 
                         try:
-                            with FileLock(lock_path, timeout=0.1):
+                            with FileLock(lock_path, timeout=5.0):
                                 if path.is_dir():
                                     shutil.rmtree(path)
                                 else:
@@ -518,7 +522,7 @@ class GlobalCacheManager:
 
                             # Try to acquire lock
                             try:
-                                with FileLock(lock_path, timeout=0.1):
+                                with FileLock(lock_path, timeout=5.0):
                                     if item.is_dir():
                                         shutil.rmtree(item)
                                     else:

@@ -104,6 +104,17 @@ class CacheStressTest(unittest.TestCase):
             if cache_match:
                 cache_dir = cache_match.group(1).strip()
 
+            # Detect FastLED symbol errors (cache corruption indicator)
+            fastled_error = any(
+                error in result.stdout or error in result.stderr
+                for error in [
+                    "'CRGB' does not name a type",
+                    "'FastLED' was not declared in this scope",
+                    "'NEOPIXEL' was not declared in this scope",
+                    "FastLED.h: No such file or directory",
+                ]
+            )
+
             compilation_result = {
                 "worker_id": worker_id,
                 "iteration": iteration,
@@ -113,6 +124,7 @@ class CacheStressTest(unittest.TestCase):
                 "cache_hit": cache_hit,
                 "cache_miss": cache_miss,
                 "cache_dir": cache_dir,
+                "fastled_error": fastled_error,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "return_code": result.returncode,
@@ -135,6 +147,7 @@ class CacheStressTest(unittest.TestCase):
                 "cache_hit": False,
                 "cache_miss": False,
                 "cache_dir": None,
+                "fastled_error": False,
                 "stdout": "",
                 "stderr": "Timeout expired",
                 "return_code": -1,
@@ -156,6 +169,7 @@ class CacheStressTest(unittest.TestCase):
                 "cache_hit": False,
                 "cache_miss": False,
                 "cache_dir": None,
+                "fastled_error": False,
                 "stdout": "",
                 "stderr": str(e),
                 "return_code": -2,
@@ -165,6 +179,45 @@ class CacheStressTest(unittest.TestCase):
                 self.compilation_results.append(compilation_result)
 
             return compilation_result
+
+    def _purge_cache(self, purge_id: int) -> Dict:
+        """Run cache purge operation and return results."""
+        start_time = time.time()
+
+        cmd = "uv run tpo --purge"
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=self.project_root,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+
+            elapsed = time.time() - start_time
+
+            return {
+                "purge_id": purge_id,
+                "success": result.returncode == 0,
+                "elapsed": elapsed,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "return_code": result.returncode,
+            }
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            return {
+                "purge_id": purge_id,
+                "success": False,
+                "elapsed": elapsed,
+                "stdout": "",
+                "stderr": str(e),
+                "return_code": -1,
+            }
 
     def test_concurrent_same_example_compilation(self):
         """Test multiple workers compiling the same example simultaneously."""
@@ -193,17 +246,20 @@ class CacheStressTest(unittest.TestCase):
         failed_results = [r for r in results if not r["success"]]
         cache_hits = [r for r in results if r["cache_hit"]]
         cache_misses = [r for r in results if r["cache_miss"]]
+        fastled_errors = [r for r in results if r["fastled_error"]]
 
         print(f"Total execution time: {total_time:.2f}s")
         print(f"Successful compilations: {len(successful_results)}/{num_workers}")
         print(f"Failed compilations: {len(failed_results)}")
         print(f"Cache hits: {len(cache_hits)}")
         print(f"Cache misses: {len(cache_misses)}")
+        print(f"FastLED errors: {len(fastled_errors)}")
 
         # Print failed results for debugging
         for result in failed_results:
             print(f"Worker {result['worker_id']} failed:")
             print(f"  Return code: {result['return_code']}")
+            print(f"  FastLED error: {result['fastled_error']}")
             print(f"  Stderr: {result['stderr'][:200]}...")
 
         # Assertions - Focus on cache system behavior rather than compilation success
@@ -223,6 +279,12 @@ class CacheStressTest(unittest.TestCase):
         # We expect some cache hits since multiple processes are accessing the same cache
         print(f"Cache system test: {len(cache_hits)} hits, {len(cache_misses)} misses")
         print(f"Concurrent access handled: {len(results)} total operations")
+
+        # Check for cache corruption indicators
+        if fastled_errors:
+            print(
+                f"WARNING: {len(fastled_errors)} compilations had FastLED symbol errors (potential cache corruption)"
+            )
 
         # This demonstrates that the locking mechanism is working - the cache system
         # processes concurrent requests without corruption, regardless of compilation success
@@ -259,8 +321,9 @@ class CacheStressTest(unittest.TestCase):
                         f"  Worker {result['worker_id']}: SUCCESS ({cache_status}) - {result['elapsed']:.2f}s"
                     )
                 else:
+                    error_type = "FASTLED" if result["fastled_error"] else "OTHER"
                     print(
-                        f"  Worker {result['worker_id']}: FAILED - {result['stderr'][:50]}..."
+                        f"  Worker {result['worker_id']}: FAILED ({error_type}) - {result['stderr'][:50]}..."
                     )
 
         total_time = time.time() - start_time
@@ -270,6 +333,7 @@ class CacheStressTest(unittest.TestCase):
         failed_results = [r for r in results if not r["success"]]
         cache_hits = [r for r in results if r["cache_hit"]]
         cache_misses = [r for r in results if r["cache_miss"]]
+        fastled_errors = [r for r in results if r["fastled_error"]]
 
         print("\nFinal Results:")
         print(f"Total execution time: {total_time:.2f}s")
@@ -277,6 +341,7 @@ class CacheStressTest(unittest.TestCase):
         print(f"Failed compilations: {len(failed_results)}")
         print(f"Cache hits: {len(cache_hits)}")
         print(f"Cache misses: {len(cache_misses)}")
+        print(f"FastLED errors: {len(fastled_errors)}")
 
         # Performance analysis
         if successful_results:
@@ -337,6 +402,298 @@ class CacheStressTest(unittest.TestCase):
                 f"Cache system stress test: {len(cache_operations)} operations processed"
             )
             print(f"Cache directory integrity maintained: {cache_dir}")
+
+        # Check for cache corruption indicators
+        if fastled_errors:
+            print(
+                f"WARNING: {len(fastled_errors)} compilations had FastLED symbol errors (potential cache corruption)"
+            )
+
+    def test_cache_corruption_with_concurrent_purge(self):
+        """Test cache behavior when purge operations run concurrently with compilation."""
+        print(f"\n{'='*60}")
+        print("STRESS TEST: Cache Corruption with Concurrent Purge")
+        print(f"{'='*60}")
+
+        example = self.examples[0]  # Use Blink example
+        num_compile_workers = 4
+        num_purge_workers = 2
+
+        print(
+            f"Testing {num_compile_workers} compilation workers + {num_purge_workers} purge workers..."
+        )
+
+        def compile_task(worker_id: int) -> Dict:
+            return self._compile_example(example, worker_id, 0)
+
+        def purge_task(purge_id: int) -> Dict:
+            # Add small delay to let some compilations start
+            time.sleep(0.5)
+            return self._purge_cache(purge_id)
+
+        start_time = time.time()
+
+        with ThreadPoolExecutor(
+            max_workers=num_compile_workers + num_purge_workers
+        ) as executor:
+            # Submit compilation tasks
+            compile_futures = [
+                executor.submit(compile_task, i) for i in range(num_compile_workers)
+            ]
+
+            # Submit purge tasks
+            purge_futures = [
+                executor.submit(purge_task, i) for i in range(num_purge_workers)
+            ]
+
+            # Collect compilation results
+            compile_results = []
+            for future in as_completed(compile_futures, timeout=180):
+                result = future.result()
+                compile_results.append(result)
+
+                # Print progress
+                if result["success"]:
+                    cache_status = "HIT" if result["cache_hit"] else "MISS"
+                    print(
+                        f"  Compile {result['worker_id']}: SUCCESS ({cache_status}) - {result['elapsed']:.2f}s"
+                    )
+                else:
+                    error_type = "FASTLED" if result["fastled_error"] else "OTHER"
+                    print(
+                        f"  Compile {result['worker_id']}: FAILED ({error_type}) - {result['stderr'][:50]}..."
+                    )
+
+            # Collect purge results
+            purge_results = []
+            for future in as_completed(purge_futures, timeout=60):
+                result = future.result()
+                purge_results.append(result)
+
+                print(
+                    f"  Purge {result['purge_id']}: {'SUCCESS' if result['success'] else 'FAILED'} - {result['elapsed']:.2f}s"
+                )
+
+        total_time = time.time() - start_time
+
+        # Analyze compilation results
+        successful_compiles = [r for r in compile_results if r["success"]]
+        failed_compiles = [r for r in compile_results if not r["success"]]
+        cache_hits = [r for r in compile_results if r["cache_hit"]]
+        cache_misses = [r for r in compile_results if r["cache_miss"]]
+        fastled_errors = [r for r in compile_results if r["fastled_error"]]
+
+        # Analyze purge results
+        successful_purges = [r for r in purge_results if r["success"]]
+        failed_purges = [r for r in purge_results if not r["success"]]
+
+        print("\nFinal Results:")
+        print(f"Total execution time: {total_time:.2f}s")
+        print(
+            f"Successful compilations: {len(successful_compiles)}/{num_compile_workers}"
+        )
+        print(f"Failed compilations: {len(failed_compiles)}")
+        print(f"Cache hits: {len(cache_hits)}")
+        print(f"Cache misses: {len(cache_misses)}")
+        print(f"FastLED errors: {len(fastled_errors)}")
+        print(f"Successful purges: {len(successful_purges)}/{num_purge_workers}")
+        print(f"Failed purges: {len(failed_purges)}")
+
+        # Detailed analysis of FastLED errors
+        if fastled_errors:
+            print("\nFastLED Error Analysis:")
+            for result in fastled_errors:
+                print(f"  Worker {result['worker_id']}: {result['return_code']}")
+                if "'CRGB' does not name a type" in result["stdout"]:
+                    print("    - Missing CRGB type definition")
+                if "'FastLED' was not declared" in result["stdout"]:
+                    print("    - FastLED not declared in scope")
+                if "FastLED.h: No such file" in result["stdout"]:
+                    print("    - FastLED.h header file missing")
+
+        # Print detailed output for failed compilations
+        for result in failed_compiles:
+            if result["fastled_error"]:
+                print(
+                    f"\nDetailed output for Worker {result['worker_id']} (FastLED error):"
+                )
+                print(f"STDOUT: {result['stdout'][-500:]}")  # Last 500 chars
+                print(f"STDERR: {result['stderr'][-500:]}")  # Last 500 chars
+
+        # Assertions - This test is designed to detect cache corruption
+        # We expect that concurrent purge operations may cause issues
+
+        # At least some operations should have been attempted
+        self.assertGreater(len(compile_results), 0, "Should have compilation results")
+        self.assertGreater(len(purge_results), 0, "Should have purge results")
+
+        # Check if cache corruption occurred
+        corruption_detected = len(fastled_errors) > 0
+
+        if corruption_detected:
+            print(
+                f"\n⚠️  CACHE CORRUPTION DETECTED! {len(fastled_errors)} compilations had FastLED symbol errors"
+            )
+            print(
+                "This indicates that concurrent purge operations may have corrupted the cache state."
+            )
+
+            # Analyze what happened
+            cache_dirs = set(r["cache_dir"] for r in compile_results if r["cache_dir"])
+            if cache_dirs:
+                print(f"Cache directories used: {cache_dirs}")
+
+                # Check if cache directory still exists
+                for cache_dir_str in cache_dirs:
+                    cache_dir = Path(cache_dir_str)
+                    if cache_dir.exists():
+                        print(
+                            f"Cache directory {cache_dir} still exists with {len(list(cache_dir.rglob('*')))} files"
+                        )
+                    else:
+                        print(f"Cache directory {cache_dir} was deleted during purge")
+        else:
+            print(
+                "\n✅ No cache corruption detected - the locking mechanism successfully prevented issues"
+            )
+
+        # The test succeeds regardless of corruption - we're just detecting and reporting it
+        print(
+            f"\nCache corruption test completed - corruption detected: {corruption_detected}"
+        )
+
+    def test_simple_purge_during_compilation(self):
+        """Test that demonstrates the cache corruption issue with a single compilation and purge."""
+        print("\n" + "=" * 60)
+        print("SIMPLE TEST: Single Compilation + Purge")
+        print("=" * 60)
+
+        import subprocess
+        import threading
+        import time
+
+        # Clean cache before test
+        if self.fast_cache_root.exists():
+            shutil.rmtree(self.fast_cache_root, ignore_errors=True)
+
+        # Results storage
+        compile_result = {}
+        purge_result = {}
+
+        def run_compilation():
+            """Run a single compilation."""
+            cmd = f"uv run tpo {self.examples[0]} --native"
+            start_time = time.time()
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.project_root,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=120,
+                )
+                duration = time.time() - start_time
+
+                compile_result.update(
+                    {
+                        "return_code": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "duration": duration,
+                        "success": result.returncode == 0,
+                        "fastled_error": "FastLED.h: No such file" in result.stdout,
+                        "cache_hit": "Fast cache [hit]" in result.stdout,
+                    }
+                )
+
+            except Exception as e:
+                duration = time.time() - start_time
+                compile_result.update(
+                    {
+                        "return_code": -1,
+                        "error": str(e),
+                        "success": False,
+                        "duration": duration,
+                    }
+                )
+
+        def run_purge():
+            """Run a purge operation."""
+            cmd = "uv run tpo --purge"
+            start_time = time.time()
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.project_root,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                )
+                duration = time.time() - start_time
+
+                purge_result.update(
+                    {
+                        "return_code": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "duration": duration,
+                        "success": result.returncode == 0,
+                    }
+                )
+
+            except Exception as e:
+                duration = time.time() - start_time
+                purge_result.update(
+                    {
+                        "return_code": -1,
+                        "error": str(e),
+                        "success": False,
+                        "duration": duration,
+                    }
+                )
+
+        # Start compilation
+        compile_thread = threading.Thread(target=run_compilation)
+        compile_thread.start()
+
+        # Wait a moment, then start purge
+        time.sleep(0.5)  # Let compilation start
+        purge_thread = threading.Thread(target=run_purge)
+        purge_thread.start()
+
+        # Wait for both to complete
+        compile_thread.join()
+        purge_thread.join()
+
+        print(
+            f"Compilation: {'SUCCESS' if compile_result.get('success') else 'FAILED'} - {compile_result.get('duration', 0):.2f}s"
+        )
+        print(
+            f"Purge: {'SUCCESS' if purge_result.get('success') else 'FAILED'} - {purge_result.get('duration', 0):.2f}s"
+        )
+
+        if not compile_result.get("success"):
+            print(
+                f"Compilation failed with return code: {compile_result.get('return_code')}"
+            )
+            if compile_result.get("fastled_error"):
+                print("FastLED error detected!")
+
+            # Print relevant parts of stderr for debugging
+            stderr = compile_result.get("stderr", "")
+            if "turbo_deps" in stderr:
+                print("Turbo deps related output:")
+                for line in stderr.split("\n"):
+                    if "turbo_deps" in line or "FastLED" in line:
+                        print(f"  {line}")
+
+        # The test passes regardless of success/failure - we're just demonstrating the issue
+        self.assertIsNotNone(compile_result.get("return_code"))
+        self.assertIsNotNone(purge_result.get("return_code"))
 
 
 if __name__ == "__main__":

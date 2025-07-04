@@ -1,7 +1,7 @@
 """Turbo dependencies management for pio_compiler.
 
-This module handles downloading libraries and platforms from GitHub and symlinking them
-into projects without using PlatformIO's lib_deps system.
+This module handles downloading libraries and platforms from GitHub and extracting them
+directly into projects without using PlatformIO's lib_deps system or symlinks.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class TurboDependencyManager:
-    """Manages turbo dependencies - libraries and platforms downloaded and symlinked directly."""
+    """Manages turbo dependencies - libraries and platforms downloaded and extracted directly."""
 
     def __init__(self, cache_dir: Path | None = None):
         """Initialize the turbo dependency manager.
@@ -129,28 +129,24 @@ class TurboDependencyManager:
             logger.info(
                 f"Downloading library '{library_name}' from {github_url} using global cache"
             )
+            logger.debug(
+                f"Attempting to get or download framework from global cache: {github_url}"
+            )
             global_cache_path = self.global_cache.get_or_download_framework(github_url)
+            logger.debug(f"Global cache returned path: {global_cache_path}")
 
-            # Create a symlink or copy from global cache to local cache
+            # Extract directly from global cache to local cache (no symlinks)
             if library_dir.exists():
+                logger.debug(f"Removing existing library directory: {library_dir}")
                 shutil.rmtree(library_dir)
 
-            try:
-                # Try to create a symlink first
-                library_dir.symlink_to(global_cache_path, target_is_directory=True)
-                logger.info(
-                    f"Library '{library_name}' symlinked from global cache to {library_dir}"
-                )
-            except OSError:
-                # On Windows, symlinks might fail due to permissions
-                # Fall back to copying the directory
-                logger.warning(
-                    "Symlink failed, copying library from global cache instead"
-                )
-                shutil.copytree(global_cache_path, library_dir)
-                logger.info(
-                    f"Library '{library_name}' copied from global cache to {library_dir}"
-                )
+            # Always copy the directory to avoid symlink issues
+            logger.info(
+                f"Extracting library '{library_name}' from global cache to local cache"
+            )
+            logger.debug(f"Copying from {global_cache_path} to {library_dir}")
+            shutil.copytree(global_cache_path, library_dir)
+            logger.info(f"Library '{library_name}' extracted to {library_dir}")
 
             return library_dir
 
@@ -158,20 +154,23 @@ class TurboDependencyManager:
             logger.error(
                 f"Failed to download library '{library_name}' using global cache: {e}"
             )
+            logger.debug(
+                f"Library download error details for '{library_name}'", exc_info=True
+            )
             raise
 
-    def symlink_library(self, library_name: str, target_project_dir: Path) -> Path:
-        """Symlink a library into a project's lib directory.
+    def extract_library(self, library_name: str, target_project_dir: Path) -> Path:
+        """Extract a library directly into a project's lib directory.
 
         Args:
-            library_name: Name of the library to symlink
-            target_project_dir: Project directory where to create the symlink
+            library_name: Name of the library to extract
+            target_project_dir: Project directory where to extract the library
 
         Returns:
-            Path to the symlinked library in the project
+            Path to the extracted library in the project
 
         Raises:
-            Exception: If symlinking fails
+            Exception: If extraction fails
         """
         # Download library if not cached
         library_source = self.download_library(library_name)
@@ -180,41 +179,18 @@ class TurboDependencyManager:
         project_lib_dir = target_project_dir / "lib"
         project_lib_dir.mkdir(exist_ok=True)
 
-        # Create symlink
-        symlink_target = project_lib_dir / library_name.lower()
+        # Extract directly to project lib directory
+        extract_target = project_lib_dir / library_name.lower()
 
-        # Check if symlink already exists and points to the correct location
-        if symlink_target.exists() or symlink_target.is_symlink():
-            if symlink_target.is_symlink():
-                # Check if it points to the correct location
-                try:
-                    if symlink_target.resolve() == library_source.resolve():
-                        logger.debug(
-                            f"Library '{library_name}' already correctly symlinked to {symlink_target}"
-                        )
-                        return symlink_target
-                except (OSError, RuntimeError):
-                    # Symlink might be broken, remove it
-                    pass
+        # Remove existing directory if it exists
+        if extract_target.exists():
+            shutil.rmtree(extract_target)
 
-                # Remove existing symlink if it doesn't point to correct location
-                symlink_target.unlink()
-            else:
-                # Remove existing directory
-                shutil.rmtree(symlink_target)
-
-        try:
-            # Create the symlink
-            symlink_target.symlink_to(library_source, target_is_directory=True)
-            logger.info(f"Symlinked library '{library_name}' to {symlink_target}")
-            return symlink_target
-        except OSError as e:
-            # On Windows, symlinks might fail due to permissions
-            # Fall back to copying the directory
-            logger.warning(f"Symlink failed, copying library instead: {e}")
-            shutil.copytree(library_source, symlink_target)
-            logger.info(f"Copied library '{library_name}' to {symlink_target}")
-            return symlink_target
+        # Copy the library directly (no symlinks)
+        logger.info(f"Extracting library '{library_name}' to {extract_target}")
+        shutil.copytree(library_source, extract_target)
+        logger.info(f"Library '{library_name}' extracted to {extract_target}")
+        return extract_target
 
     def setup_turbo_dependencies(
         self, library_names: list[str], project_dir: Path
@@ -226,24 +202,32 @@ class TurboDependencyManager:
             project_dir: Project directory
 
         Returns:
-            List of paths to symlinked libraries
+            List of paths to extracted libraries
         """
         if not library_names:
             return []
 
         logger.info(f"Setting up turbo dependencies: {library_names}")
 
-        symlinked_paths = []
+        extracted_paths = []
         for lib_name in library_names:
             try:
-                symlink_path = self.symlink_library(lib_name, project_dir)
-                symlinked_paths.append(symlink_path)
+                logger.debug(f"Starting extraction of library '{lib_name}'")
+                extract_path = self.extract_library(lib_name, project_dir)
+                extracted_paths.append(extract_path)
+                logger.debug(
+                    f"Successfully extracted library '{lib_name}' to {extract_path}"
+                )
             except Exception as e:
                 logger.error(f"Failed to setup turbo dependency '{lib_name}': {e}")
+                logger.debug(
+                    f"Turbo dependency setup error details for '{lib_name}'",
+                    exc_info=True,
+                )
                 # Continue with other libraries even if one fails
 
-        logger.info(f"Successfully set up {len(symlinked_paths)} turbo dependencies")
-        return symlinked_paths
+        logger.info(f"Successfully set up {len(extracted_paths)} turbo dependencies")
+        return extracted_paths
 
     def download_platform(self, platform_name: str) -> Path:
         """Download a platform from GitHub and extract it to cache.
@@ -282,26 +266,16 @@ class TurboDependencyManager:
             )
             global_cache_path = self.global_cache.get_or_download_framework(github_url)
 
-            # Create a symlink or copy from global cache to local cache
+            # Extract directly from global cache to local cache (no symlinks)
             if platform_dir.exists():
                 shutil.rmtree(platform_dir)
 
-            try:
-                # Try to create a symlink first
-                platform_dir.symlink_to(global_cache_path, target_is_directory=True)
-                logger.info(
-                    f"Platform '{platform_name}' symlinked from global cache to {platform_dir}"
-                )
-            except OSError:
-                # On Windows, symlinks might fail due to permissions
-                # Fall back to copying the directory
-                logger.warning(
-                    "Symlink failed, copying platform from global cache instead"
-                )
-                shutil.copytree(global_cache_path, platform_dir)
-                logger.info(
-                    f"Platform '{platform_name}' copied from global cache to {platform_dir}"
-                )
+            # Always copy the directory to avoid symlink issues
+            logger.info(
+                f"Extracting platform '{platform_name}' from global cache to local cache"
+            )
+            shutil.copytree(global_cache_path, platform_dir)
+            logger.info(f"Platform '{platform_name}' extracted to {platform_dir}")
 
             return platform_dir
 
@@ -311,18 +285,18 @@ class TurboDependencyManager:
             )
             raise
 
-    def symlink_platform(self, platform_name: str, target_project_dir: Path) -> Path:
-        """Symlink a platform into a project's platforms directory.
+    def extract_platform(self, platform_name: str, target_project_dir: Path) -> Path:
+        """Extract a platform directly into a project's platforms directory.
 
         Args:
-            platform_name: Name of the platform to symlink
-            target_project_dir: Project directory where to create the symlink
+            platform_name: Name of the platform to extract
+            target_project_dir: Project directory where to extract the platform
 
         Returns:
-            Path to the symlinked platform in the project
+            Path to the extracted platform in the project
 
         Raises:
-            Exception: If symlinking fails
+            Exception: If extraction fails
         """
         # Download platform if not cached
         platform_source = self.download_platform(platform_name)
@@ -331,39 +305,16 @@ class TurboDependencyManager:
         project_platforms_dir = target_project_dir / "platforms"
         project_platforms_dir.mkdir(exist_ok=True)
 
-        # Create symlink
+        # Extract directly to project platforms directory
         normalized_name = platform_name.lower()
-        symlink_target = project_platforms_dir / normalized_name
+        extract_target = project_platforms_dir / normalized_name
 
-        # Check if symlink already exists and points to the correct location
-        if symlink_target.exists() or symlink_target.is_symlink():
-            if symlink_target.is_symlink():
-                # Check if it points to the correct location
-                try:
-                    if symlink_target.resolve() == platform_source.resolve():
-                        logger.debug(
-                            f"Platform '{platform_name}' already correctly symlinked to {symlink_target}"
-                        )
-                        return symlink_target
-                except (OSError, RuntimeError):
-                    # Symlink might be broken, remove it
-                    pass
+        # Remove existing directory if it exists
+        if extract_target.exists():
+            shutil.rmtree(extract_target)
 
-                # Remove existing symlink if it doesn't point to correct location
-                symlink_target.unlink()
-            else:
-                # Remove existing directory
-                shutil.rmtree(symlink_target)
-
-        try:
-            # Create the symlink
-            symlink_target.symlink_to(platform_source, target_is_directory=True)
-            logger.info(f"Symlinked platform '{platform_name}' to {symlink_target}")
-            return symlink_target
-        except OSError as e:
-            # On Windows, symlinks might fail due to permissions
-            # Fall back to copying the directory
-            logger.warning(f"Platform symlink failed, copying instead: {e}")
-            shutil.copytree(platform_source, symlink_target)
-            logger.info(f"Copied platform '{platform_name}' to {symlink_target}")
-            return symlink_target
+        # Copy the platform directly (no symlinks)
+        logger.info(f"Extracting platform '{platform_name}' to {extract_target}")
+        shutil.copytree(platform_source, extract_target)
+        logger.info(f"Platform '{platform_name}' extracted to {extract_target}")
+        return extract_target

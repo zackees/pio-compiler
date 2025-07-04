@@ -774,7 +774,7 @@ class PioCompilerImpl:
                         from .turbo_deps import TurboDependencyManager
 
                         turbo_manager = TurboDependencyManager()
-                        turbo_manager.symlink_platform(self.platform.name, project_dir)
+                        turbo_manager.extract_platform(self.platform.name, project_dir)
                     except Exception as exc:
                         logger.warning(
                             "Failed to setup platform '%s': %s", self.platform.name, exc
