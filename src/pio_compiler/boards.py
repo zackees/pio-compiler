@@ -144,6 +144,8 @@ class Board:
 
         if self.framework:
             lines.append(f"framework = {self.framework}")
+        elif self.board_name != "native" and self.board_name != "dev":
+            lines.append("framework = arduino")
 
         if self.board_build_core:
             lines.append(f"board_build.core = {self.board_build_core}")
