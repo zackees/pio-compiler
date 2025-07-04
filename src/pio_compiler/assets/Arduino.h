@@ -62,6 +62,16 @@ void digitalWrite(uint8_t pin, uint8_t val);
 void analogReference(uint8_t mode);
 void analogWrite(uint8_t pin, int val);
 
+inline long map(long x, long in_min, long in_max, long out_min, long out_max) {
+    const long run = in_max - in_min;
+    if (run == 0) {
+        return 0; // AVR returns -1, SAM returns 0
+    }
+    const long rise = out_max - out_min;
+    const long delta = x - in_min;
+    return (delta * rise) / run + out_min;
+}
+
 // Timing functions - declare but don't conflict with FastLED  
 // Use FastLED's expected signatures when available
 #ifndef FASTLED_STUB_IMPL

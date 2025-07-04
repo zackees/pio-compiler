@@ -117,6 +117,17 @@ class PioCompiler:
             project_dir, example_path, output_dir
         )
 
+    def handle_library_archives(
+        self,
+        project_dir: Path,
+        library_name: str = "FastLED",
+        library_version: str = "3.10.1",
+    ) -> bool:
+        """Handle library archive creation after successful build."""
+        return self.__impl.handle_library_archives(
+            project_dir, library_name, library_version
+        )
+
     @property
     def _work_dir(self) -> Path:
         """Return the work directory path."""

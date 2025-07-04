@@ -1049,6 +1049,30 @@ def _run_cli(arguments: list[str]) -> int:
                             duration=build_time_taken,
                         )
 
+                        # Handle library archives for successful builds
+                        if "FastLED" in all_turbo_libs:
+                            try:
+                                project_dir = (
+                                    compiler._work_dir
+                                    if hasattr(compiler, "_work_dir")
+                                    else None
+                                )
+                                if project_dir:
+                                    archive_created = compiler.handle_library_archives(
+                                        project_dir=project_dir,
+                                        library_name="FastLED",
+                                        library_version="3.10.1",
+                                    )
+                                    if archive_created:
+                                        logger.info(
+                                            "FastLED library archive created/verified for future reuse"
+                                        )
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to handle library archives: {e}"
+                                )
+                                # Don't fail the build if archive creation fails
+
                         # Generate info reports if needed
                         if args.info or args.report is not None:
                             report_dir = None
@@ -1254,6 +1278,30 @@ def _run_cli(arguments: list[str]) -> int:
                                 duration=build_time_taken,
                             )
                         )
+
+                        # Handle library archives for successful builds
+                        if "FastLED" in all_turbo_libs:
+                            try:
+                                project_dir = (
+                                    compiler._work_dir
+                                    if hasattr(compiler, "_work_dir")
+                                    else None
+                                )
+                                if project_dir:
+                                    archive_created = compiler.handle_library_archives(
+                                        project_dir=project_dir,
+                                        library_name="FastLED",
+                                        library_version="3.10.1",
+                                    )
+                                    if archive_created:
+                                        logger.info(
+                                            "FastLED library archive created/verified for future reuse"
+                                        )
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to handle library archives: {e}"
+                                )
+                                # Don't fail the build if archive creation fails
 
                         # cleanup old cache entries if needed.
                         if use_cache_manager and cache_manager is not None:

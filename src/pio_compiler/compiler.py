@@ -12,6 +12,7 @@ from colorama import Fore, Style, init
 
 from . import tempdir
 from .compiler_stream import CompilerStream
+from .lib_archive_manager import LibraryArchiveManager
 from .types import Platform, Result
 
 __all__ = [
@@ -1273,3 +1274,86 @@ class PioCompilerImpl:
                         old_file.unlink()
                     elif old_file.is_dir():
                         shutil.rmtree(old_file)
+
+    def handle_library_archives(
+        self,
+        project_dir: Path,
+        library_name: str = "FastLED",
+        library_version: str = "3.10.1",
+    ) -> bool:
+        """Handle library archive creation after successful build.
+
+        This method is called after a successful build to create archives of compiled
+        libraries for reuse in future builds.
+
+        Args:
+            project_dir: The PlatformIO project directory
+            library_name: Name of the library to archive (default: FastLED)
+            library_version: Version of the library (default: 3.10.1)
+
+        Returns:
+            True if archive was created or already exists
+        """
+        # Initialize archive manager
+        archive_manager = LibraryArchiveManager(cache_root=self._work_dir.parent)
+
+        # Get archive path for this library configuration
+        archive_path = archive_manager.get_archive_path(
+            library_name=library_name,
+            library_version=library_version,
+            platform=self.platform.name,
+            build_flags=None,  # TODO: Extract build flags from platformio.ini
+        )
+
+        # Check if archive already exists
+        if archive_manager.archive_exists(archive_path):
+            logger.info(f"Library archive already exists: {archive_path}")
+            return True
+
+        # Find the build directory
+        build_dir = project_dir / ".pio" / "build"
+        if not build_dir.exists():
+            logger.warning(f"Build directory not found: {build_dir}")
+            return False
+
+        # Find the environment directory (e.g., 'dev' for native platform)
+        env_name = "dev" if self.platform.name == "native" else self.platform.name
+        env_build_dir = build_dir / env_name
+
+        if not env_build_dir.exists():
+            logger.warning(f"Environment build directory not found: {env_build_dir}")
+            return False
+
+        # Find all object files for the library
+        object_files = archive_manager.find_library_objects(env_build_dir, library_name)
+
+        if not object_files:
+            logger.info(f"No object files found for {library_name}")
+            return False
+
+        logger.info(f"Found {len(object_files)} object files for {library_name}")
+
+        # Determine the appropriate archive tool
+        ar_tool = "ar"
+        if self.platform.name == "native" and shutil.which("ar") is None:
+            # On Windows, try to find a compatible ar tool
+            possible_tools = ["ar", "llvm-ar", "gcc-ar"]
+            for tool in possible_tools:
+                if shutil.which(tool):
+                    ar_tool = tool
+                    break
+            else:
+                logger.error("No suitable archive tool (ar) found")
+                return False
+
+        # Create the archive
+        success = archive_manager.create_archive_from_objects(
+            object_files=object_files, archive_path=archive_path, ar_tool=ar_tool
+        )
+
+        if success:
+            logger.info(f"Successfully created {library_name} archive for reuse")
+        else:
+            logger.error(f"Failed to create {library_name} archive")
+
+        return success
