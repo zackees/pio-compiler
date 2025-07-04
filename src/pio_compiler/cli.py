@@ -173,6 +173,11 @@ def _print_startup_banner(
         print(
             f"  {status_colour}{ROCKET} Fast cache [{status}]: {formatted_fast_dir}{_RESET}"
         )
+    elif clean and fast_dir is not None:
+        formatted_fast_dir = _format_path_for_logging(fast_dir)
+        print(
+            f"  {_MAGENTA}{HAMMER} Clean build using cache: {formatted_fast_dir}{_RESET}"
+        )
     elif clean:
         print(f"  {_MAGENTA}{HAMMER} Full clean build – no incremental cache{_RESET}")
 
@@ -608,10 +613,15 @@ def _run_cli(arguments: List[str]) -> int:
     #   4. default     → fast = True
     # ------------------------------------------------------------------
 
+    # Always use CacheManager for structured cache directories
+    # The force_rebuild parameter will handle clean build behavior
+    use_cache_manager: bool = True
+
+    # Legacy fast_mode flag for display purposes and incremental builds
     fast_mode: bool = True  # default – incremental fast builds
 
     if args.clean:
-        fast_mode = False
+        fast_mode = False  # Show clean build in banner, but still use CacheManager
     elif args.fast_flag:
         fast_mode = True
 
@@ -633,9 +643,9 @@ def _run_cli(arguments: List[str]) -> int:
             _print_error("Sketch path is not a valid file or directory", src_path)
             return 1
 
-    # Safety: *fast* mode only makes sense for a single platform & single sketch.
-    if fast_mode and (len(args.platforms) != 1 or len(args.src) != 1):
-        fast_mode = False  # silently fall back to rebuild semantics
+    # Safety: *cache manager* only makes sense for a single platform & single sketch.
+    if use_cache_manager and (len(args.platforms) != 1 or len(args.src) != 1):
+        use_cache_manager = False  # silently fall back to tempdir semantics
 
     # ------------------------------------------------------------------
     # Inject *build_cache_dir* into the generated *platformio.ini* when the
@@ -703,13 +713,13 @@ def _run_cli(arguments: List[str]) -> int:
         # )
 
     # ------------------------------------------------------------------
-    # *Fast* mode – use cache manager for human-readable cache directories
+    # *Cache Manager* – always use structured cache directories
     # ------------------------------------------------------------------
 
-    # Initialize cache manager once
+    # Initialize cache manager for all builds (replaces legacy tempdir system)
     cache_manager = None
-    if fast_mode:
-        from .cache_manager import CacheManager
+    if use_cache_manager:
+        from pio_compiler.cache_manager import CacheManager
 
         cache_manager = CacheManager()
 
@@ -771,35 +781,38 @@ def _run_cli(arguments: List[str]) -> int:
 
             plat_obj.platformio_ini = _inject_cache(plat_obj.platformio_ini)
 
-        # ---------------- fast-cache per platform ----------------
-        fast_dir: Path | None = None
-        fast_hit: bool | None = None
+        # ---------------- cache directory per platform ----------------
+        cache_dir: Path | None = None
+        cache_hit: bool | None = None
         cache_entry: CacheEntry | None = None
 
-        if fast_mode and cache_manager:
+        if use_cache_manager and cache_manager:
             src_path = Path(args.src[0]).expanduser().resolve()
             cache_entry = cache_manager.get_cache_entry(
                 src_path, plat_name, plat_obj.platformio_ini or "", all_turbo_libs
             )
 
-            fast_dir = cache_entry.cache_dir
-            fast_hit = cache_entry.exists
+            cache_dir = cache_entry.cache_dir
+            cache_hit = cache_entry.exists
 
-            if fast_hit:
-                print(f"[FAST] Using cache directory: {fast_dir}")
-            else:
+            if cache_hit and fast_mode:
+                print(f"[FAST] Using cache directory: {cache_dir}")
+            elif not cache_hit and fast_mode:
                 print("[FAST] Cache miss – creating cache directory…")
-                fast_dir.mkdir(parents=True, exist_ok=True)
-                print(f"[FAST] Using cache directory: {fast_dir}")
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                print(f"[FAST] Using cache directory: {cache_dir}")
+            elif args.clean:
+                print(f"[CLEAN] Using cache directory: {cache_dir}")
+                cache_dir.mkdir(parents=True, exist_ok=True)
 
         compiler = PioCompiler(
             plat_obj,
-            work_dir=fast_dir if fast_mode else None,
+            work_dir=cache_dir if use_cache_manager else None,
             fast_mode=fast_mode,
             disable_auto_clean=False,
             force_rebuild=args.clean,
             info_mode=args.info,
-            cache_entry=cache_entry if fast_mode and cache_manager else None,
+            cache_entry=cache_entry if use_cache_manager and cache_manager else None,
         )
         init_result = compiler.initialize()
         if not init_result.ok:
@@ -821,8 +834,8 @@ def _run_cli(arguments: List[str]) -> int:
         if fast_mode:
             _print_startup_banner(
                 fast_mode=True,
-                fast_dir=fast_dir,
-                fast_hit=fast_hit,
+                fast_dir=cache_dir,
+                fast_hit=cache_hit,
                 cache_dir=args.cache,
                 clean=False,
                 pio_cache_dir=pio_cache_dir,
@@ -830,8 +843,8 @@ def _run_cli(arguments: List[str]) -> int:
         else:
             _print_startup_banner(
                 fast_mode=False,
-                fast_dir=None,
-                fast_hit=None,
+                fast_dir=cache_dir,
+                fast_hit=cache_hit,
                 cache_dir=args.cache,
                 clean=True,
                 pio_cache_dir=pio_cache_dir,
@@ -917,7 +930,7 @@ def _run_cli(arguments: List[str]) -> int:
                 exit_code = 1
             else:
                 # Build succeeded – cleanup old cache entries if needed.
-                if fast_mode and cache_manager is not None:
+                if use_cache_manager and cache_manager is not None:
                     try:
                         # Clean up old cache entries to keep the cache manageable
                         cache_manager.cleanup_old_entries(
