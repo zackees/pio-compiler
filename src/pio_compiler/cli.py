@@ -351,6 +351,17 @@ def _print_project_info(
 
 
 @dataclass(slots=True)
+class BuildResult:
+    """Track the result of a single build."""
+
+    src_path: Path
+    platform: str
+    success: bool
+    time_taken: float
+    error_message: str | None = None
+
+
+@dataclass(slots=True)
 class CLIArguments:
     """Structured representation of user-supplied CLI arguments."""
 
@@ -901,11 +912,14 @@ def _run_cli(arguments: list[str]) -> int:
     src_paths = [Path(p) for p in args.src]
 
     exit_code = 0
+    build_results: list[BuildResult] = []  # Track all build results
 
     for plat_name, compiler in compilers:
         streams = compiler.multi_compile(src_paths)
 
         for src_path, future in zip(src_paths, streams):
+            build_start_time = time.time()  # Record start time
+
             # Resolve the compilation *Future* – this yields the actual
             # :class:`CompilerStream` instance.
             try:
@@ -915,6 +929,16 @@ def _run_cli(arguments: list[str]) -> int:
                 logger.error("Compilation failed for %s: %s", formatted_path, exc)
                 _print_error("Compilation failed", formatted_path)
                 exit_code = 1
+                # Track failed build
+                build_results.append(
+                    BuildResult(
+                        src_path=src_path,
+                        platform=plat_name,
+                        success=False,
+                        time_taken=time.time() - build_start_time,
+                        error_message=f"Compilation failed: {exc}",
+                    )
+                )
                 continue
 
             formatted_path = _format_path_for_logging(src_path)
@@ -976,11 +1000,23 @@ def _run_cli(arguments: list[str]) -> int:
             if getattr(stream, "_popen", None) is not None:
                 proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
 
+            build_time_taken = time.time() - build_start_time  # Calculate time taken
+
             if proc_rc is None:
                 # No subprocess – consider this a failure because the build
                 # could not even start (e.g. invalid *example* path).
                 exit_code = 1
                 _print_error("Build could not start", formatted_path)
+                # Track failed build
+                build_results.append(
+                    BuildResult(
+                        src_path=src_path,
+                        platform=plat_name,
+                        success=False,
+                        time_taken=build_time_taken,
+                        error_message="Build could not start",
+                    )
+                )
             elif proc_rc != 0:
                 # Underlying *platformio run* command failed – propagate.
                 logger.error(
@@ -988,11 +1024,31 @@ def _run_cli(arguments: list[str]) -> int:
                 )
                 _print_error(f"Build failed (exit code: {proc_rc})", formatted_path)
                 exit_code = 1
+                # Track failed build
+                build_results.append(
+                    BuildResult(
+                        src_path=src_path,
+                        platform=plat_name,
+                        success=False,
+                        time_taken=build_time_taken,
+                        error_message=f"Build failed (exit code: {proc_rc})",
+                    )
+                )
             else:
                 # Build succeeded
                 success_emoji = _sym("✅", "[OK]")
                 print(
                     f"{_GREEN}{success_emoji} Build successful:{_RESET} {_YELLOW}{formatted_path}{_RESET}"
+                )
+
+                # Track successful build
+                build_results.append(
+                    BuildResult(
+                        src_path=src_path,
+                        platform=plat_name,
+                        success=True,
+                        time_taken=build_time_taken,
+                    )
                 )
 
                 # cleanup old cache entries if needed.
@@ -1019,6 +1075,55 @@ def _run_cli(arguments: list[str]) -> int:
                     _print_info_reports(
                         compiler, src_path, plat_name, report_dir, args.clean
                     )
+
+    # Print build summary footer if there were multiple builds
+    if len(build_results) > 1:
+        print()  # Empty line before footer
+        print(f"{_BOLD}{_CYAN}{'=' * 60}{_RESET}")
+
+        # Count successes and failures
+        successful_builds = [r for r in build_results if r.success]
+        failed_builds = [r for r in build_results if not r.success]
+
+        # Print summary message
+        if len(failed_builds) == 0:
+            print(f"{_BOLD}{_GREEN}All Builds Succeed!{_RESET}")
+        else:
+            print(
+                f"{_BOLD}{_YELLOW}{len(successful_builds)} Builds Passed, "
+                f"{len(failed_builds)} Builds failed to compile{_RESET}"
+            )
+
+        print()
+        print(f"{_BOLD}{_CYAN}Build Info:{_RESET}")
+
+        # Print individual build results
+        for result in build_results:
+            # Format path
+            formatted_path = _format_path_for_logging(result.src_path)
+
+            # Choose icon and color based on success
+            if result.success:
+                status_icon = f"{_GREEN}{_sym('✓', '[✓]')}{_RESET}"
+            else:
+                status_icon = f"{_RED}{_sym('✗', '[x]')}{_RESET}"
+
+            # Format time taken
+            time_str = f"{result.time_taken:.2f}s"
+
+            # Build the output line
+            if len(result.platform) > 1 and result.platform != "native":
+                # Include platform name if not native
+                build_line = f"  {status_icon} - {_YELLOW}{time_str:<8}{_RESET} {formatted_path} ({result.platform})"
+            else:
+                build_line = (
+                    f"  {status_icon} - {_YELLOW}{time_str:<8}{_RESET} {formatted_path}"
+                )
+
+            print(build_line)
+
+        print(f"{_BOLD}{_CYAN}{'=' * 60}{_RESET}")
+        print()  # Empty line after footer
 
     return exit_code
 
