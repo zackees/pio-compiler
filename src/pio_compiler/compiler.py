@@ -831,6 +831,10 @@ class PioCompilerImpl:
 
             copied_paths: list[str] = []
 
+            # Clean up old source files if we're reusing a cache directory
+            if self.fast_mode and src_dir.exists():
+                self._cleanup_old_source_files(project_dir)
+
             if example_path.is_dir():
                 # Copy everything from the example directory into *src*.
                 for item in example_path.iterdir():
@@ -839,10 +843,9 @@ class PioCompilerImpl:
                         shutil.copy(item, dest_path)
                         copied_paths.append(str(dest_path.relative_to(project_dir)))
                     elif item.is_dir():
-                        # Avoid *FileExistsError* when reusing the same work
-                        # directory (fast mode) across multiple invocations.
+                        # Remove existing directory if it exists (old files already cleaned up)
                         if dest_path.exists():
-                            continue
+                            shutil.rmtree(dest_path)
                         shutil.copytree(item, dest_path)
                         copied_paths.append(str(dest_path.relative_to(project_dir)))
                     else:
@@ -1219,3 +1222,20 @@ class PioCompilerImpl:
             f"  - A directory containing .ino files\n"
             f"  - A single .ino file"
         )
+
+    def _cleanup_old_source_files(self, project_dir: Path) -> None:
+        """Clean up old source files in the project directory."""
+        cleanup_file = project_dir / "_pio_cleanup.txt"
+        if cleanup_file.exists():
+            with cleanup_file.open(encoding="utf-8") as f:
+                old_paths = f.read().splitlines()
+
+            for old_path in old_paths:
+                old_path = Path(old_path)
+                old_file = project_dir / old_path
+                if old_file.exists():
+                    logger.debug(f"Removing old file: {old_file}")
+                    if old_file.is_file():
+                        old_file.unlink()
+                    elif old_file.is_dir():
+                        shutil.rmtree(old_file)
