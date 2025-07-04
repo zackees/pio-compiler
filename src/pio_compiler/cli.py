@@ -1076,8 +1076,8 @@ def _run_cli(arguments: list[str]) -> int:
                         compiler, src_path, plat_name, report_dir, args.clean
                     )
 
-    # Print build summary footer if there were multiple builds
-    if len(build_results) > 1:
+    # Print build summary footer for all builds (single or multiple)
+    if len(build_results) > 0:
         print()  # Empty line before footer
         print(f"{_BOLD}{_CYAN}{'=' * 60}{_RESET}")
 
@@ -1092,10 +1092,15 @@ def _run_cli(arguments: list[str]) -> int:
         if len(failed_builds) == 0:
             print(f"{_BOLD}{_GREEN}All Builds Succeed!{_RESET}")
         else:
-            print(
-                f"{_BOLD}{_YELLOW}{len(successful_builds)} Builds Passed, "
-                f"{len(failed_builds)} Builds failed to compile{_RESET}"
-            )
+            if len(build_results) == 1:
+                # Single build case
+                print(f"{_BOLD}{_RED}Build Failed!{_RESET}")
+            else:
+                # Multiple builds case
+                print(
+                    f"{_BOLD}{_YELLOW}{len(successful_builds)} Builds Passed, "
+                    f"{len(failed_builds)} Builds failed to compile{_RESET}"
+                )
 
         # Print total time
         print(f"{_BOLD}{_CYAN}Total time: {_YELLOW}{total_time:.2f}s{_RESET}")
