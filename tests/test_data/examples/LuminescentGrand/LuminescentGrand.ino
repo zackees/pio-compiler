@@ -17,7 +17,6 @@ void setup() {}
 void loop() {}
 #else
 
-
 //#define DEBUG_PAINTER
 //#define DEBUG_KEYBOARD 1
 

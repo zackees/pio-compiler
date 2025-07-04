@@ -825,7 +825,49 @@ class PioCompilerImpl:
 
             # Clean up old source files if we're reusing a cache directory
             if not self.force_rebuild and src_dir.exists():
-                self._cleanup_old_source_files(project_dir)
+                # When sharing cache between multiple projects, we need to completely
+                # clean the src directory to avoid mixing files from different projects
+                logger.debug(
+                    f"Cleaning entire src directory for cache reuse: {src_dir}"
+                )
+                # Remove all files and subdirectories in src
+                for item in src_dir.iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                            logger.debug(f"Removed file: {item}")
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                            logger.debug(f"Removed directory: {item}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove {item}: {e}")
+
+            # Also clean up the PlatformIO build directory for the specific environment
+            # when reusing a cache directory to prevent conflicts between different projects
+            if not self.force_rebuild:
+                # Determine the environment name from platformio.ini
+                env_name = "dev"  # Default for native platform
+                if self.platform.name == "uno":
+                    env_name = "uno"
+                elif self.platform.name != "native":
+                    # For other platforms, the environment name might be different
+                    env_name = self.platform.name
+
+                pio_env_build_dir = project_dir / ".pio" / "build" / env_name
+                if pio_env_build_dir.exists():
+                    logger.debug(
+                        f"Cleaning PlatformIO build directory for environment '{env_name}': {pio_env_build_dir}"
+                    )
+                    try:
+                        shutil.rmtree(pio_env_build_dir)
+                        logger.debug(
+                            f"Successfully removed PlatformIO build directory: {pio_env_build_dir}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to remove PlatformIO build directory: {e}"
+                        )
+                        # Continue anyway, PlatformIO might handle it
 
             if example_path.is_dir():
                 # Copy everything from the example directory into *src*.

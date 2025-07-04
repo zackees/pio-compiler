@@ -356,9 +356,9 @@ class BuildResult:
 
     src_path: Path
     platform: str
-    success: bool
-    time_taken: float
-    error_message: str | None = None
+    exit_code: int
+    output: str
+    duration: float
 
 
 @dataclass(slots=True)
@@ -384,6 +384,10 @@ class CLIArguments:
     turbo_libs: list[str] = field(default_factory=list)
     # Purge all caches (global and local)
     purge: bool = False
+    # Verbose output
+    verbose: bool = False
+    # Info output directory
+    info_output_dir: str | None = None
 
 
 def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
@@ -412,6 +416,8 @@ def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
         report=getattr(ns, "report", None),
         turbo_libs=getattr(ns, "turbo_libs", []),
         purge=getattr(ns, "purge", False),
+        verbose=getattr(ns, "verbose", False),
+        info_output_dir=getattr(ns, "info_output_dir", None),
     )
 
 
@@ -559,6 +565,23 @@ def _build_argument_parser() -> argparse.ArgumentParser:
             "(.pio_cache) if they exist. This operation runs immediately and "
             "exits without performing any builds."
         ),
+    )
+
+    # Verbose output
+    parser.add_argument(
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        help="Enable verbose output for debugging",
+    )
+
+    # Info output directory
+    parser.add_argument(
+        "--info-output-dir",
+        metavar="PATH",
+        dest="info_output_dir",
+        required=False,
+        help="Path to directory for saving info reports",
     )
 
     return parser
@@ -915,166 +938,351 @@ def _run_cli(arguments: list[str]) -> int:
     build_results: list[BuildResult] = []  # Track all build results
 
     for plat_name, compiler in compilers:
-        streams = compiler.multi_compile(src_paths)
-
-        for src_path, future in zip(src_paths, streams):
-            build_start_time = time.time()  # Record start time
-
-            # Resolve the compilation *Future* – this yields the actual
-            # :class:`CompilerStream` instance.
-            try:
-                stream = future.result()
-            except Exception as exc:  # pragma: no cover – treat failures gracefully
+        # When using a shared cache, we must compile projects completely one at a time
+        # to avoid file conflicts. multi_compile sets up all projects at once which
+        # causes the last project's files to overwrite all others.
+        if use_cache_manager and cache_manager:
+            # Process each project completely before moving to the next
+            for src_path in src_paths:
+                build_start_time = time.time()
                 formatted_path = _format_path_for_logging(src_path)
-                logger.error("Compilation failed for %s: %s", formatted_path, exc)
-                _print_error("Compilation failed", formatted_path)
-                exit_code = 1
-                # Track failed build
-                build_results.append(
-                    BuildResult(
-                        src_path=src_path,
-                        platform=plat_name,
-                        success=False,
-                        time_taken=time.time() - build_start_time,
-                        error_message=f"Compilation failed: {exc}",
-                    )
+                logger.info("[BUILD] %s …", formatted_path)
+
+                # Display project info for this specific project
+                _print_project_info(
+                    project_path=src_path,
+                    platform_name=plat_name,
+                    cache_dir=(
+                        compiler._work_dir if hasattr(compiler, "_work_dir") else None
+                    ),
+                    turbo_dependencies=all_turbo_libs,
                 )
-                continue
 
-            formatted_path = _format_path_for_logging(src_path)
-            logger.info("[BUILD] %s …", formatted_path)
-
-            # Display project info for this specific project
-            _print_project_info(
-                project_path=src_path,
-                platform_name=plat_name,
-                cache_dir=(
-                    compiler._work_dir if hasattr(compiler, "_work_dir") else None
-                ),
-                turbo_dependencies=all_turbo_libs,
-            )
-
-            # Use npm-style build message with hammer emoji
-            build_emoji = _sym("🔨", ">")
-            print(
-                f"{_CYAN}{build_emoji}{_RESET} Building: {_YELLOW}{formatted_path}{_RESET} …"
-            )
-
-            # Consume stream output until completion.
-            accumulated: list[str] = []
-            while not stream.is_done():
-                line = stream.readline(timeout=0.1)
-                if line is None:
-                    # No new data yet – continue polling.
-                    continue
-                accumulated.append(line)
-                # Echo live so that users see progress immediately.
-                try:
-                    print(line, end="")
-                except UnicodeEncodeError:
-                    # Replace problematic characters to avoid IO errors on narrow encodings.
-                    safe = line.encode(errors="replace").decode(
-                        sys.stdout.encoding, errors="ignore"
-                    )
-                    print(safe, end="")
-
-            # Build finished – summarise.
-            total_bytes = sum(len(line_) for line_ in accumulated)
-            logger.info(
-                "[DONE] %s – captured %d bytes of output", formatted_path, total_bytes
-            )
-
-            # Don't print the old [DONE] message, it will be replaced by success/failure message below
-
-            # --------------------------------------------------------------
-            # Determine build success – propagate non-zero *exit codes* from
-            # the underlying *platformio* process so that callers (scripts,
-            # CI pipelines, unit tests, …) can reliably detect compilation
-            # failures.  *stream._popen* is *None* when the compiler runs in
-            # *simulation* mode or when the *example* path was invalid.
-            # Treat both situations as *failure* (exit code = 1) so that
-            # mis-configurations cannot masquerade as successful builds.
-            # --------------------------------------------------------------
-
-            proc_rc: int | None = None
-            if getattr(stream, "_popen", None) is not None:
-                proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
-
-            build_time_taken = time.time() - build_start_time  # Calculate time taken
-
-            if proc_rc is None:
-                # No subprocess – consider this a failure because the build
-                # could not even start (e.g. invalid *example* path).
-                exit_code = 1
-                _print_error("Build could not start", formatted_path)
-                # Track failed build
-                build_results.append(
-                    BuildResult(
-                        src_path=src_path,
-                        platform=plat_name,
-                        success=False,
-                        time_taken=build_time_taken,
-                        error_message="Build could not start",
-                    )
-                )
-            elif proc_rc != 0:
-                # Underlying *platformio run* command failed – propagate.
-                logger.error(
-                    "[FAILED] %s – platformio exited with %d", formatted_path, proc_rc
-                )
-                _print_error(f"Build failed (exit code: {proc_rc})", formatted_path)
-                exit_code = 1
-                # Track failed build
-                build_results.append(
-                    BuildResult(
-                        src_path=src_path,
-                        platform=plat_name,
-                        success=False,
-                        time_taken=build_time_taken,
-                        error_message=f"Build failed (exit code: {proc_rc})",
-                    )
-                )
-            else:
-                # Build succeeded
-                success_emoji = _sym("✅", "[OK]")
+                # Use npm-style build message with hammer emoji
+                build_emoji = _sym("🔨", ">")
                 print(
-                    f"{_GREEN}{success_emoji} Build successful:{_RESET} {_YELLOW}{formatted_path}{_RESET}"
+                    f"{_CYAN}{build_emoji}{_RESET} Building: {_YELLOW}{formatted_path}{_RESET} …"
                 )
 
-                # Track successful build
-                build_results.append(
-                    BuildResult(
+                try:
+                    # Get a future for this single compilation
+                    future = compiler.compile(src_path)
+
+                    # Process the future immediately (it's already resolved)
+                    stream = future.result()
+
+                    # Process the stream
+                    output_lines = []
+                    while not stream.is_done():
+                        line = stream.readline(timeout=0.1)
+                        if line is None:
+                            # No new data yet – continue polling.
+                            continue
+                        output_lines.append(line)
+                        # Echo live so that users see progress immediately.
+                        try:
+                            print(line, end="")
+                        except UnicodeEncodeError:
+                            # Replace problematic characters to avoid IO errors on narrow encodings.
+                            safe = line.encode(errors="replace").decode(
+                                sys.stdout.encoding, errors="ignore"
+                            )
+                            print(safe, end="")
+
+                    # Get exit code
+                    proc_rc: int | None = None
+                    if getattr(stream, "_popen", None) is not None:
+                        proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
+
+                    # Log completion
+                    total_bytes = sum(len(line_) for line_ in output_lines)
+                    logger.info(
+                        "[DONE] %s – captured %d bytes of output",
+                        formatted_path,
+                        total_bytes,
+                    )
+
+                    # Calculate duration
+                    build_time_taken = time.time() - build_start_time
+
+                    # Create build result
+                    if proc_rc is None:
+                        # No subprocess – consider this a failure
+                        exit_code = 1
+                        _print_error("Build could not start", formatted_path)
+                        build_result = BuildResult(
+                            src_path=src_path,
+                            platform=plat_name,
+                            exit_code=1,
+                            output="Build could not start",
+                            duration=build_time_taken,
+                        )
+                    elif proc_rc != 0:
+                        # Build failed
+                        logger.error(
+                            "[FAILED] %s – platformio exited with %d",
+                            formatted_path,
+                            proc_rc,
+                        )
+                        _print_error(
+                            f"Build failed (exit code: {proc_rc})", formatted_path
+                        )
+                        exit_code = 1
+                        build_result = BuildResult(
+                            src_path=src_path,
+                            platform=plat_name,
+                            exit_code=proc_rc,
+                            output="".join(output_lines),
+                            duration=build_time_taken,
+                        )
+                    else:
+                        # Build succeeded
+                        success_emoji = _sym("✅", "[OK]")
+                        print(
+                            f"{_GREEN}{success_emoji} Build successful:{_RESET} {_YELLOW}{formatted_path}{_RESET}"
+                        )
+                        build_result = BuildResult(
+                            src_path=src_path,
+                            platform=plat_name,
+                            exit_code=0,
+                            output="".join(output_lines),
+                            duration=build_time_taken,
+                        )
+
+                        # Generate info reports if needed
+                        if args.info or args.report is not None:
+                            report_dir = None
+                            if args.report is not None:
+                                if args.report == "":
+                                    # --report flag used without value, use work directory (cache root)
+                                    report_dir = compiler.work_dir()
+                                else:
+                                    report_dir = (
+                                        Path(args.report).expanduser().resolve()
+                                    )
+                                # Ensure the report directory exists
+                                report_dir.mkdir(parents=True, exist_ok=True)
+                            _print_info_reports(
+                                compiler, src_path, plat_name, report_dir, args.clean
+                            )
+
+                    build_results.append(build_result)
+
+                except Exception as exc:
+                    logger.error("Compilation failed for %s: %s", formatted_path, exc)
+                    _print_error("Compilation failed", formatted_path)
+                    exit_code = 1
+
+                    # Create a failed build result
+                    build_result = BuildResult(
                         src_path=src_path,
                         platform=plat_name,
-                        success=True,
-                        time_taken=build_time_taken,
+                        exit_code=1,
+                        output=f"Compilation failed: {exc}",
+                        duration=time.time() - build_start_time,
                     )
-                )
+                    build_results.append(build_result)
 
-                # cleanup old cache entries if needed.
-                if use_cache_manager and cache_manager is not None:
+        else:
+            # When not using shared cache, we can use multi_compile for efficiency
+            streams = compiler.multi_compile(src_paths)
+
+            # Import executor for handling futures
+            from concurrent.futures import ThreadPoolExecutor
+
+            # Always use sequential execution (max_workers=1) to ensure predictable behavior
+            # and avoid file conflicts when sharing cache directories
+            max_workers = 1
+
+            # Create executor with appropriate worker count
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all futures to executor
+                future_to_info = {}
+                for src_path, future in zip(src_paths, streams):
+                    # The futures from multi_compile are already resolved, but we submit
+                    # them to executor to control execution order
+                    # Use default argument to capture the future correctly
+                    executor_future = executor.submit(lambda f=future: f.result())
+                    future_to_info[executor_future] = (src_path, future)
+
+                # Process results as they complete (which will be sequential if max_workers=1)
+                for executor_future in future_to_info:
+                    src_path, original_future = future_to_info[executor_future]
+                    build_start_time = time.time()  # Record start time
+
+                    # Get the stream from the executor future
                     try:
-                        # Clean up old cache entries to keep the cache manageable
-                        cache_manager.cleanup_old_entries(
-                            max_entries=10, max_age_days=30
+                        stream = executor_future.result()
+                    except (
+                        Exception
+                    ) as exc:  # pragma: no cover – treat failures gracefully
+                        formatted_path = _format_path_for_logging(src_path)
+                        logger.error(
+                            "Compilation failed for %s: %s", formatted_path, exc
                         )
-                    except Exception as exc:  # pragma: no cover – best-effort
-                        logger.warning("Failed to cleanup cache entries: %s", exc)
+                        _print_error("Compilation failed", formatted_path)
+                        exit_code = 1
+                        # Track failed build
+                        build_results.append(
+                            BuildResult(
+                                src_path=src_path,
+                                platform=plat_name,
+                                exit_code=1,
+                                output=f"Compilation failed: {exc}",
+                                duration=time.time() - build_start_time,
+                            )
+                        )
+                        continue
 
-                # Generate info reports if --info flag was provided or --report was specified
-                if args.info or args.report is not None:
-                    report_dir = None
-                    if args.report is not None:
-                        if args.report == "":
-                            # --report flag used without value, use work directory (cache root)
-                            report_dir = compiler.work_dir()
-                        else:
-                            report_dir = Path(args.report).expanduser().resolve()
-                        # Ensure the report directory exists
-                        report_dir.mkdir(parents=True, exist_ok=True)
-                    _print_info_reports(
-                        compiler, src_path, plat_name, report_dir, args.clean
+                    formatted_path = _format_path_for_logging(src_path)
+                    logger.info("[BUILD] %s …", formatted_path)
+
+                    # Display project info for this specific project
+                    _print_project_info(
+                        project_path=src_path,
+                        platform_name=plat_name,
+                        cache_dir=(
+                            compiler._work_dir
+                            if hasattr(compiler, "_work_dir")
+                            else None
+                        ),
+                        turbo_dependencies=all_turbo_libs,
                     )
+
+                    # Use npm-style build message with hammer emoji
+                    build_emoji = _sym("🔨", ">")
+                    print(
+                        f"{_CYAN}{build_emoji}{_RESET} Building: {_YELLOW}{formatted_path}{_RESET} …"
+                    )
+
+                    # Consume stream output until completion.
+                    accumulated: list[str] = []
+                    while not stream.is_done():
+                        line = stream.readline(timeout=0.1)
+                        if line is None:
+                            # No new data yet – continue polling.
+                            continue
+                        accumulated.append(line)
+                        # Echo live so that users see progress immediately.
+                        try:
+                            print(line, end="")
+                        except UnicodeEncodeError:
+                            # Replace problematic characters to avoid IO errors on narrow encodings.
+                            safe = line.encode(errors="replace").decode(
+                                sys.stdout.encoding, errors="ignore"
+                            )
+                            print(safe, end="")
+
+                    # Build finished – summarise.
+                    total_bytes = sum(len(line_) for line_ in accumulated)
+                    logger.info(
+                        "[DONE] %s – captured %d bytes of output",
+                        formatted_path,
+                        total_bytes,
+                    )
+
+                    # Don't print the old [DONE] message, it will be replaced by success/failure message below
+
+                    # --------------------------------------------------------------
+                    # Determine build success – propagate non-zero *exit codes* from
+                    # the underlying *platformio* process so that callers (scripts,
+                    # CI pipelines, unit tests, …) can reliably detect compilation
+                    # failures.  *stream._popen* is *None* when the compiler runs in
+                    # *simulation* mode or when the *example* path was invalid.
+                    # Treat both situations as *failure* (exit code = 1) so that
+                    # mis-configurations cannot masquerade as successful builds.
+                    # --------------------------------------------------------------
+
+                    proc_rc: int | None = None
+                    if getattr(stream, "_popen", None) is not None:
+                        proc_rc = stream._popen.returncode  # type: ignore[attr-defined]
+
+                    build_time_taken = (
+                        time.time() - build_start_time
+                    )  # Calculate time taken
+
+                    if proc_rc is None:
+                        # No subprocess – consider this a failure because the build
+                        # could not even start (e.g. invalid *example* path).
+                        exit_code = 1
+                        _print_error("Build could not start", formatted_path)
+                        # Track failed build
+                        build_results.append(
+                            BuildResult(
+                                src_path=src_path,
+                                platform=plat_name,
+                                exit_code=1,
+                                output="Build could not start",
+                                duration=build_time_taken,
+                            )
+                        )
+                    elif proc_rc != 0:
+                        # Underlying *platformio run* command failed – propagate.
+                        logger.error(
+                            "[FAILED] %s – platformio exited with %d",
+                            formatted_path,
+                            proc_rc,
+                        )
+                        _print_error(
+                            f"Build failed (exit code: {proc_rc})", formatted_path
+                        )
+                        exit_code = 1
+                        # Track failed build
+                        build_results.append(
+                            BuildResult(
+                                src_path=src_path,
+                                platform=plat_name,
+                                exit_code=proc_rc,
+                                output="".join(accumulated),
+                                duration=build_time_taken,
+                            )
+                        )
+                    else:
+                        # Build succeeded
+                        success_emoji = _sym("✅", "[OK]")
+                        print(
+                            f"{_GREEN}{success_emoji} Build successful:{_RESET} {_YELLOW}{formatted_path}{_RESET}"
+                        )
+
+                        # Track successful build
+                        build_results.append(
+                            BuildResult(
+                                src_path=src_path,
+                                platform=plat_name,
+                                exit_code=0,
+                                output="".join(accumulated),
+                                duration=build_time_taken,
+                            )
+                        )
+
+                        # cleanup old cache entries if needed.
+                        if use_cache_manager and cache_manager is not None:
+                            try:
+                                # Clean up old cache entries to keep the cache manageable
+                                cache_manager.cleanup_old_entries(
+                                    max_entries=10, max_age_days=30
+                                )
+                            except Exception as exc:  # pragma: no cover – best-effort
+                                logger.warning(
+                                    "Failed to cleanup cache entries: %s", exc
+                                )
+
+                        # Generate info reports if --info flag was provided or --report was specified
+                        if args.info or args.report is not None:
+                            report_dir = None
+                            if args.report is not None:
+                                if args.report == "":
+                                    # --report flag used without value, use work directory (cache root)
+                                    report_dir = compiler.work_dir()
+                                else:
+                                    report_dir = (
+                                        Path(args.report).expanduser().resolve()
+                                    )
+                                # Ensure the report directory exists
+                                report_dir.mkdir(parents=True, exist_ok=True)
+                            _print_info_reports(
+                                compiler, src_path, plat_name, report_dir, args.clean
+                            )
 
     # Print build summary footer for all builds (single or multiple)
     if len(build_results) > 0:
@@ -1082,11 +1290,11 @@ def _run_cli(arguments: list[str]) -> int:
         print(f"{_BOLD}{_CYAN}{'=' * 60}{_RESET}")
 
         # Count successes and failures
-        successful_builds = [r for r in build_results if r.success]
-        failed_builds = [r for r in build_results if not r.success]
+        successful_builds = [r for r in build_results if r.exit_code == 0]
+        failed_builds = [r for r in build_results if r.exit_code != 0]
 
         # Calculate total time
-        total_time = sum(r.time_taken for r in build_results)
+        total_time = sum(r.duration for r in build_results)
 
         # Print summary message
         if len(failed_builds) == 0:
@@ -1114,13 +1322,13 @@ def _run_cli(arguments: list[str]) -> int:
             formatted_path = _format_path_for_logging(result.src_path)
 
             # Choose icon and color based on success
-            if result.success:
+            if result.exit_code == 0:
                 status_icon = f"{_GREEN}{_sym('✓', '[✓]')}{_RESET}"
             else:
                 status_icon = f"{_RED}{_sym('✗', '[x]')}{_RESET}"
 
             # Format time taken
-            time_str = f"{result.time_taken:.2f}s"
+            time_str = f"{result.duration:.2f}s"
 
             # Build the output line
             if len(result.platform) > 1 and result.platform != "native":
