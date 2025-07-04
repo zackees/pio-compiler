@@ -10,4 +10,4 @@ This change allows
 
 uv run tpo examples/** which will compile all ino directories.
 
-This will end
+This will end up using the multi_compile feature to compile all of these tests in parallel.
