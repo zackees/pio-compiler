@@ -13,6 +13,7 @@ argument; in that case the full parser is executed.
 from __future__ import annotations
 
 import argparse
+import glob
 import logging
 import os
 import sys
@@ -499,6 +500,50 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _expand_glob_patterns(patterns: list[str]) -> list[str]:
+    """Expand glob patterns to find directories containing .ino files.
+
+    Args:
+        patterns: List of paths that may contain glob patterns
+
+    Returns:
+        List of expanded paths to directories containing .ino files
+    """
+    expanded_paths = []
+
+    for pattern in patterns:
+        # Check if this looks like a glob pattern
+        if any(char in pattern for char in ["*", "?", "["]):
+            # Expand the glob pattern
+            matches = glob.glob(pattern, recursive=True)
+
+            # Filter to only include directories that contain .ino files
+            for match in matches:
+                match_path = Path(match)
+                if match_path.is_dir():
+                    # Check if this directory contains any .ino files
+                    ino_files = list(match_path.glob("*.ino"))
+                    if ino_files:
+                        expanded_paths.append(str(match_path))
+                elif match_path.is_file() and match_path.suffix.lower() == ".ino":
+                    # If it's an .ino file directly, include its parent directory
+                    expanded_paths.append(str(match_path.parent))
+        else:
+            # Not a glob pattern, keep as-is
+            expanded_paths.append(pattern)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_paths = []
+    for path in expanded_paths:
+        normalized = str(Path(path).resolve())
+        if normalized not in seen:
+            seen.add(normalized)
+            unique_paths.append(path)
+
+    return unique_paths
+
+
 def _run_cli(arguments: List[str]) -> int:
     """Internal helper that contains the real CLI implementation."""
 
@@ -617,6 +662,23 @@ def _run_cli(arguments: List[str]) -> int:
         )
         return 1
 
+    # Expand glob patterns in source paths
+    expanded_src = _expand_glob_patterns(args.src)
+
+    if not expanded_src:
+        logger.error("No sketches found matching the provided patterns.")
+        _print_error("No sketches found matching pattern", None)
+        return 1
+
+    # Log if we expanded any patterns
+    if len(expanded_src) != len(args.src):
+        logger.info(
+            f"Expanded {len(args.src)} patterns to {len(expanded_src)} sketch paths"
+        )
+
+    # Update args.src with expanded paths
+    args.src = expanded_src
+
     # Validate that all source paths exist
     for src_path in args.src:
         path = Path(src_path).expanduser().resolve()
@@ -629,8 +691,9 @@ def _run_cli(arguments: List[str]) -> int:
             _print_error("Sketch path is not a valid file or directory", src_path)
             return 1
 
-    # Safety: *cache manager* only makes sense for a single platform & single sketch.
-    if use_cache_manager and (len(args.platforms) != 1 or len(args.src) != 1):
+    # Safety: *cache manager* only makes sense for a single platform.
+    # Multiple sketches are OK since we use multi_compile.
+    if use_cache_manager and len(args.platforms) != 1:
         use_cache_manager = False  # silently fall back to tempdir semantics
 
     # ------------------------------------------------------------------
