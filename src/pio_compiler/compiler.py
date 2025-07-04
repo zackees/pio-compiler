@@ -49,23 +49,17 @@ class PioCompilerImpl:
         platform: Platform,
         work_dir: Optional[Path] = None,
         *,
-        fast_mode: bool = False,
-        disable_auto_clean: bool = False,
         force_rebuild: bool = False,
         info_mode: bool = False,
         cache_entry=None,
     ) -> None:
         self.platform = platform
-        self.fast_mode = fast_mode
-        self.disable_auto_clean = disable_auto_clean
         self.force_rebuild = force_rebuild
         self.info_mode = info_mode
         self.cache_entry = cache_entry
         logger.debug(
-            "Creating PioCompilerImpl for platform %s (fast_mode=%s, disable_auto_clean=%s, force_rebuild=%s, info_mode=%s)",
+            "Creating PioCompilerImpl for platform %s (force_rebuild=%s, info_mode=%s)",
             platform.name,
-            fast_mode,
-            disable_auto_clean,
             force_rebuild,
             info_mode,
         )
@@ -74,9 +68,7 @@ class PioCompilerImpl:
         self._work_dir = (
             Path(work_dir)
             if work_dir is not None
-            else tempdir.mkdtemp(
-                prefix="pio_compiler_", disable_auto_clean=disable_auto_clean
-            )
+            else tempdir.mkdtemp(prefix="pio_compiler_")
         )
         self._ini_path = self._work_dir / "platformio.ini"
 
@@ -137,9 +129,9 @@ class PioCompilerImpl:
             if (example_path / "platformio.ini").exists():
                 project_dir = example_path
             else:
-                # In fast mode, the work_dir is already the cache directory for this project/platform
+                # In incremental mode (not force_rebuild), the work_dir is already the cache directory for this project/platform
                 # (e.g., ".tpo/native-a03a3ffa"), so we don't need to add the project name again
-                if self.fast_mode:
+                if not self.force_rebuild:
                     project_dir = self._work_dir
                 else:
                     project_dir = self._work_dir / example_path.stem
@@ -315,7 +307,7 @@ class PioCompilerImpl:
                         build_start_time
                     ).isoformat(),
                     "end_time_iso": datetime.fromtimestamp(build_end_time).isoformat(),
-                    "fast_mode": self.fast_mode,
+                    "incremental": not self.force_rebuild,
                     "force_rebuild": self.force_rebuild,
                     "info_mode": self.info_mode,
                 },
@@ -739,9 +731,9 @@ class PioCompilerImpl:
             project_dir = example_path
         else:
             # Create a dedicated project inside the compiler's work dir.
-            # In fast mode, the work_dir is already the cache directory for this project/platform
+            # In incremental mode (not force_rebuild), the work_dir is already the cache directory for this project/platform
             # (e.g., ".tpo/native-a03a3ffa"), so we don't need to add the project name again
-            if self.fast_mode:
+            if not self.force_rebuild:
                 project_dir = self._work_dir
             else:
                 project_dir = self._work_dir / example_path.stem
@@ -754,7 +746,7 @@ class PioCompilerImpl:
                 # Check if platform is already set up in cache to avoid redundant work
                 skip_platform_setup = False
                 if (
-                    self.fast_mode
+                    not self.force_rebuild
                     and self.cache_entry
                     and hasattr(self.cache_entry, "is_platform_setup")
                 ):
@@ -786,7 +778,7 @@ class PioCompilerImpl:
                 # Check if dependencies are already set up in cache to avoid redundant work
                 skip_turbo_setup = False
                 if (
-                    self.fast_mode
+                    not self.force_rebuild
                     and self.cache_entry
                     and hasattr(self.cache_entry, "are_turbo_dependencies_setup")
                 ):
@@ -832,7 +824,7 @@ class PioCompilerImpl:
             copied_paths: list[str] = []
 
             # Clean up old source files if we're reusing a cache directory
-            if self.fast_mode and src_dir.exists():
+            if not self.force_rebuild and src_dir.exists():
                 self._cleanup_old_source_files(project_dir)
 
             if example_path.is_dir():

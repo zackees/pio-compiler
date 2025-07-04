@@ -13,8 +13,6 @@ class PioCompiler:
         platform: Platform,
         *,
         work_dir: Path | None = None,
-        fast_mode: bool = False,
-        disable_auto_clean: bool = False,
         force_rebuild: bool = False,
         info_mode: bool = False,
         cache_entry=None,
@@ -29,20 +27,13 @@ class PioCompiler:
             Optional path to a *persistent* work directory.  When *None* the
             compiler allocates a fresh temporary directory via
             :pyfunc:`pio_compiler.tempdir.mkdtemp`.  Supplying an explicit path
-            allows callers – notably the *--fast* CLI mode – to re-use a
-            previous build directory so that subsequent invocations can
-            benefit from incremental compilation.
-        fast_mode:
-            When *True* the underlying implementation enables additional
-            optimisations such as ``--disable-auto-clean`` and
-            ``--disable-ldf`` on cache *hits* to minimise build latency.
-        disable_auto_clean:
-            When *True*, disables automatic cleanup of temporary directories
-            at interpreter shutdown. Useful for debugging build artifacts.
+            allows callers to re-use a previous build directory so that
+            subsequent invocations can benefit from incremental compilation.
         force_rebuild:
             When *True*, forces a full clean rebuild by running 'platformio run
             --target clean' before compilation. This removes all build artifacts
-            and starts fresh.
+            and starts fresh. When *False* (default), performs an incremental
+            build reusing cached artifacts.
         info_mode:
             When *True*, enables generation of optimization reports and build
             information files after successful compilation.
@@ -55,8 +46,6 @@ class PioCompiler:
         self.__impl: PioCompilerImpl = PioCompilerImpl(
             platform,
             work_dir=work_dir,
-            fast_mode=fast_mode,
-            disable_auto_clean=disable_auto_clean,
             force_rebuild=force_rebuild,
             info_mode=info_mode,
             cache_entry=cache_entry,
@@ -127,11 +116,6 @@ class PioCompiler:
         return self.__impl.generate_symbols_report(
             project_dir, example_path, output_dir
         )
-
-    @property
-    def fast_mode(self) -> bool:
-        """Return True if fast mode is enabled."""
-        return self.__impl.fast_mode
 
     @property
     def _work_dir(self) -> Path:

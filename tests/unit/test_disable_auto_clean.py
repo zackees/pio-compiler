@@ -42,20 +42,6 @@ class CacheDirectoryTest(TimedTestCase):
         expected_base = Path.cwd() / ".pio_cache"
         self.assertTrue(str(cache_root).startswith(str(expected_base)))
 
-    def test_disable_auto_clean_parameter_ignored(self):
-        """Test that disable_auto_clean parameter is ignored for compatibility."""
-
-        # Call get_temp_root with disable_auto_clean=True (should be ignored)
-        cache_root1 = tempdir.get_temp_root(disable_auto_clean=True)
-
-        # Call get_temp_root with disable_auto_clean=False (should be ignored)
-        cache_root2 = tempdir.get_temp_root(disable_auto_clean=False)
-
-        # Both should return the same cache root (parameter is ignored)
-        self.assertEqual(cache_root1, cache_root2)
-        self.assertIsInstance(cache_root1, Path)
-        self.assertTrue(cache_root1.exists())
-
     def test_mkdtemp_creates_persistent_directories(self):
         """Test that mkdtemp creates persistent directories."""
 

@@ -154,7 +154,7 @@ HAMMER = _sym("🔨", "!")
 
 def _print_startup_banner(
     *,
-    fast_mode: bool,
+    incremental: bool,
     fast_dir: Path | None,
     fast_hit: bool | None,
     cache_dir: str | None,
@@ -166,7 +166,7 @@ def _print_startup_banner(
     header = f"{_BOLD}{_CYAN}{LIGHTNING} pio-compiler v{_tool_version()}{_RESET}"
     print(header)
 
-    if fast_mode and fast_dir is not None:
+    if incremental and fast_dir is not None:
         status_colour = _GREEN if fast_hit else _YELLOW
         status = "hit" if fast_hit else "miss"
         formatted_fast_dir = _format_path_for_logging(fast_dir)
@@ -204,6 +204,7 @@ def _print_info_reports(
     src_path: Path,
     platform_name: str,
     report_dir: Path | None = None,
+    clean_build: bool = False,
 ) -> None:
     """Print npm-style info about generated optimization reports and build info."""
 
@@ -211,7 +212,7 @@ def _print_info_reports(
     if (src_path / "platformio.ini").exists():
         project_dir = src_path
     else:
-        if compiler.fast_mode:
+        if not clean_build:
             project_dir = compiler._work_dir
         else:
             project_dir = compiler._work_dir / src_path.stem
@@ -308,10 +309,8 @@ class CLIArguments:
     # option into the generated *platformio.ini* so that subsequent builds
     # share artefacts across independent project directories.
     cache: str | None = None
-    # Force a full clean build (inverse of fast mode)
+    # Force a full clean build (inverse of incremental mode)
     clean: bool = False
-    # Legacy fast flag (hidden, for backwards compatibility)
-    fast_flag: bool = False
     # Enable info mode (generate optimization reports and build info)
     info: bool = False
     # Optional path where to save optimization reports and build info
@@ -344,7 +343,6 @@ def _parse_arguments(ns: argparse.Namespace) -> CLIArguments:
         platforms=platforms_list,
         cache=getattr(ns, "cache", None),
         clean=getattr(ns, "clean", False),
-        fast_flag=getattr(ns, "fast_flag", False),
         info=getattr(ns, "info", False),
         report=getattr(ns, "report", None),
         turbo_libs=getattr(ns, "turbo_libs", []),
@@ -430,7 +428,7 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     # Build mode selection – exactly **one** of the following may be chosen.
     mutex = parser.add_mutually_exclusive_group()
 
-    # (1) Force a *full* clean build – inverse of the default *fast* mode.
+    # (1) Force a *full* clean build – inverse of the default incremental mode.
     mutex.add_argument(
         "--clean",
         dest="clean",
@@ -439,14 +437,6 @@ def _build_argument_parser() -> argparse.ArgumentParser:
             "Force a full clean build by running 'platformio run --target clean' "
             "before compilation. This removes all build artifacts and starts fresh."
         ),
-    )
-
-    # (2) Keep the legacy --fast flag for backwards-compatibility but hide it
-    mutex.add_argument(
-        "--fast",
-        dest="fast_flag",
-        action="store_true",
-        help=argparse.SUPPRESS,
     )
 
     # Info flag for generating optimization reports and build info
@@ -605,25 +595,21 @@ def _run_cli(arguments: List[str]) -> int:
         return 0
 
     # ------------------------------------------------------------------
-    # Derive the *fast* boolean according to the selected build mode.  The
-    # precedence order is:
-    #   1. --clean     → fast = False
-    #   2. --cache     → fast = False (cannot combine with fast mode)
-    #   3. --fast flag → fast = True  (legacy alias, already default)
-    #   4. default     → fast = True
+    # Derive the incremental boolean according to the selected build mode.
+    # Precedence order:
+    #   1. --clean     → incremental = False
+    #   2. default     → incremental = True
     # ------------------------------------------------------------------
 
     # Always use CacheManager for structured cache directories
     # The force_rebuild parameter will handle clean build behavior
     use_cache_manager: bool = True
 
-    # Legacy fast_mode flag for display purposes and incremental builds
-    fast_mode: bool = True  # default – incremental fast builds
+    # Incremental build mode (opposite of force_rebuild)
+    incremental: bool = True  # default – incremental builds
 
     if args.clean:
-        fast_mode = False  # Show clean build in banner, but still use CacheManager
-    elif args.fast_flag:
-        fast_mode = True
+        incremental = False  # Show clean build in banner
 
     if not args.src:
         logger.error(
@@ -795,9 +781,9 @@ def _run_cli(arguments: List[str]) -> int:
             cache_dir = cache_entry.cache_dir
             cache_hit = cache_entry.exists
 
-            if cache_hit and fast_mode:
+            if cache_hit and incremental:
                 print(f"[FAST] Using cache directory: {cache_dir}")
-            elif not cache_hit and fast_mode:
+            elif not cache_hit and incremental:
                 print("[FAST] Cache miss – creating cache directory…")
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 print(f"[FAST] Using cache directory: {cache_dir}")
@@ -808,8 +794,6 @@ def _run_cli(arguments: List[str]) -> int:
         compiler = PioCompiler(
             plat_obj,
             work_dir=cache_dir if use_cache_manager else None,
-            fast_mode=fast_mode,
-            disable_auto_clean=False,
             force_rebuild=args.clean,
             info_mode=args.info,
             cache_entry=cache_entry if use_cache_manager and cache_manager else None,
@@ -831,9 +815,9 @@ def _run_cli(arguments: List[str]) -> int:
         compilers.append((plat_name, compiler))
 
         # Display banner after compiler is initialized
-        if fast_mode:
+        if incremental:
             _print_startup_banner(
-                fast_mode=True,
+                incremental=True,
                 fast_dir=cache_dir,
                 fast_hit=cache_hit,
                 cache_dir=args.cache,
@@ -842,7 +826,7 @@ def _run_cli(arguments: List[str]) -> int:
             )
         else:
             _print_startup_banner(
-                fast_mode=False,
+                incremental=False,
                 fast_dir=cache_dir,
                 fast_hit=cache_hit,
                 cache_dir=args.cache,
@@ -950,7 +934,9 @@ def _run_cli(arguments: List[str]) -> int:
                             report_dir = Path(args.report).expanduser().resolve()
                         # Ensure the report directory exists
                         report_dir.mkdir(parents=True, exist_ok=True)
-                    _print_info_reports(compiler, src_path, plat_name, report_dir)
+                    _print_info_reports(
+                        compiler, src_path, plat_name, report_dir, args.clean
+                    )
 
     return exit_code
 

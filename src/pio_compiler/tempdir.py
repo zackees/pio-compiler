@@ -1,30 +1,9 @@
-"""pio_compiler.tempdir – project-local cache directory management.
+"""Low-level infrastructure for managing project-local temporary directories."""
 
-The module provides a *single* cache root directory that lives **inside**
-the current working directory.  All cache files and directories created by
-:pyfunc:`mkdtemp` (and potential future helpers) live below this directory.
-
-The rationale is twofold:
-
-1. Keep all build artefacts confined to one easily discoverable location which
-   can be inspected manually during debugging.
-2. Provide persistent caching across builds to improve performance while
-   avoiding system-wide cache directories that may be cleared unexpectedly.
-
-The cache root is created *lazily* on first access and persists across
-interpreter sessions. Users can trigger clean-up manually by calling
-:pyfunc:`cleanup` explicitly.
-
-A small public API mirrors the most commonly used functionality from
-:pyfunc:`tempfile.mkdtemp` and friends.  More helpers can be added as
-required.
-"""
-
-from __future__ import annotations
-
+import os
 import shutil
 import tempfile
-import uuid
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -42,50 +21,68 @@ __all__ = [
 _CACHE_ROOT: Optional[Path] = None
 
 
-def get_temp_root(*, disable_auto_clean: bool = False) -> Path:
-    """Return the *project-local* cache directory, creating it if needed.
+def get_temp_root() -> Path:
+    """Return the root directory for the current session's temporary files.
 
-    Parameters
-    ----------
-    disable_auto_clean:
-        Ignored for compatibility. The cache directory is now persistent
-        and never automatically cleaned.
+    Creates a session-specific subdirectory under .pio_cache/ that persists
+    throughout the process lifetime. The directory is NOT automatically cleaned up
+    to avoid build interruptions.
     """
-
     global _CACHE_ROOT
-    if _CACHE_ROOT is None:
-        base_root = Path.cwd() / ".pio_cache"
-        base_root.mkdir(parents=True, exist_ok=True)
 
-        # Create a unique *session* directory inside the base root so that
-        # concurrent test workers or processes never step on each other's toes.
-        # Use a simple unique identifier instead of tempfile for better control.
-        session_id = uuid.uuid4().hex[:12]
-        _CACHE_ROOT = base_root / f"session_{session_id}"
-        _CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    if _CACHE_ROOT is None:
+        cache_base = Path.cwd() / ".pio_cache"
+        cache_base.mkdir(exist_ok=True)
+
+        # Session-specific subdirectory
+        session_id = f"session_{os.getpid()}_{int(time.time())}"
+        _CACHE_ROOT = cache_base / session_id
+        _CACHE_ROOT.mkdir(exist_ok=True)
 
     return _CACHE_ROOT
 
 
-def mkdtemp(
-    *, prefix: str = "", suffix: str = "", disable_auto_clean: bool = False
-) -> Path:
-    """Create a new *unique* directory *inside* the cache root and return its :class:`~pathlib.Path`.
+def mkdtemp(*, prefix: str = "", suffix: str = "") -> Path:
+    """Create a temporary directory inside the project-local cache.
 
     Parameters
     ----------
-    prefix, suffix:
-        Naming hints for the created directory.
-    disable_auto_clean:
-        Ignored for compatibility. Cache directories are now persistent.
+    prefix:
+        Prefix for the directory name.
+    suffix:
+        Suffix for the directory name.
     """
-
     return Path(
         tempfile.mkdtemp(
             prefix=prefix,
             suffix=suffix,
-            dir=get_temp_root(disable_auto_clean=disable_auto_clean),
+            dir=get_temp_root(),
         )
+    )
+
+
+async def mkdtemp_async(
+    prefix: str = "",
+    suffix: str = "",
+) -> Path:
+    """Asynchronous version of mkdtemp.
+
+    Creates a temporary directory inside the project-local cache.
+    This is a thin async wrapper around the synchronous mkdtemp function.
+
+    Parameters
+    ----------
+    prefix:
+        Prefix for the directory name.
+    suffix:
+        Suffix for the directory name.
+    """
+    import asyncio
+
+    return await asyncio.to_thread(
+        mkdtemp,
+        prefix=prefix,
+        suffix=suffix,
     )
 
 
@@ -153,17 +150,12 @@ def cleanup_all() -> None:
 # ---------------------------------------------------------------------------
 
 
-class TemporaryDirectory:  # noqa: D101 – docstring below provides details.
-    """Context manager creating a cache directory *inside* the project root.
+class TemporaryDirectory:
+    """Context manager for creating persistent temporary directories.
 
-    The public API matches :pyclass:`tempfile.TemporaryDirectory` so that
-    existing code can switch to :pyobj:`pio_compiler.tempdir.TemporaryDirectory`
-    by adjusting imports only.  Instead of using the standard library implementation,
-    we create directories directly using mkdtemp to have full control over the
-    cleanup behavior.
-
-    Note: Unlike the standard library version, this creates persistent
-    cache directories that are not automatically cleaned up.
+    Unlike Python's standard tempfile.TemporaryDirectory, this creates
+    directories in the project-local cache that persist after the context
+    exits by default.
     """
 
     def __init__(
@@ -171,7 +163,6 @@ class TemporaryDirectory:  # noqa: D101 – docstring below provides details.
         suffix: str | None = None,
         prefix: str | None = None,
         dir: Path | None = None,
-        disable_auto_clean: bool = False,
     ):
         # Create the directory directly using our mkdtemp instead of stdlib
         if dir is not None:
@@ -184,11 +175,8 @@ class TemporaryDirectory:  # noqa: D101 – docstring below provides details.
             self.name = mkdtemp(
                 suffix=suffix or "",
                 prefix=prefix or "",
-                disable_auto_clean=disable_auto_clean,
             )
-
-        # Track whether we should clean up on exit
-        self._should_cleanup = False
+        self._cleanup_enabled = False
 
     # ------------------------------------------------------------------
     # Context manager methods.
@@ -199,7 +187,7 @@ class TemporaryDirectory:  # noqa: D101 – docstring below provides details.
 
     def __exit__(self, exc_type, exc, tb):  # noqa: D401 – match stdlib typing
         # Only cleanup if explicitly enabled
-        if self._should_cleanup:
+        if self._cleanup_enabled:
             self.cleanup()
         return None
 
@@ -222,4 +210,4 @@ class TemporaryDirectory:  # noqa: D101 – docstring below provides details.
         Call this if you want the directory to be cleaned up when the
         context manager exits (restoring stdlib behavior).
         """
-        self._should_cleanup = True
+        self._cleanup_enabled = True
