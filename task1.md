@@ -1,8 +1,13 @@
-optimization report
+Add a examples/** as an input type.
 
-we want to pass in --report
+Right now we have
 
-tpo examples/Blink --uno --report
+uv run tpo examples/Blink
 
-And this will generate the optimization report. This will be placed into the build cache node. The file path will be outputted after the build is done using colorful output like a slick npm tool
+But if we want to run multiple sketches we would need one tool call per invocation.
 
+This change allows
+
+uv run tpo examples/** which will compile all ino directories.
+
+This will end

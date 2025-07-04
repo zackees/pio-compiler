@@ -62,6 +62,72 @@ void loop() {
         finally:
             temp_path.unlink()
 
+    def test_parse_sketch_dependencies_double_slash_format(self) -> None:
+        """Test parsing dependencies using // format instead of ///."""
+        # Create a temporary sketch file with double-slash format
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ino", delete=False) as f:
+            f.write(
+                """// SKETCH-INFO
+// dependencies = ["FastLED", "ArduinoJson"]
+// SKETCH-INFO
+
+#include <FastLED.h>
+#include <ArduinoJson.h>
+
+void setup() {
+    // Setup code
+}
+
+void loop() {
+    // Loop code
+}
+"""
+            )
+            temp_path = Path(f.name)
+
+        try:
+            dependencies = _parse_sketch_dependencies(temp_path)
+
+            self.assertEqual(len(dependencies), 2)
+            self.assertIn("FastLED", dependencies)
+            self.assertIn("ArduinoJson", dependencies)
+        finally:
+            temp_path.unlink()
+
+    def test_parse_sketch_dependencies_mixed_slash_formats(self) -> None:
+        """Test parsing dependencies when SKETCH-INFO uses mixed // and /// formats."""
+        # Create a temporary sketch file with mixed formats (// for open, /// for close)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ino", delete=False) as f:
+            f.write(
+                """// SKETCH-INFO
+// dependencies = ["WiFiManager", "PubSubClient", "SPI"]
+/// SKETCH-INFO
+
+#include <WiFiManager.h>
+#include <PubSubClient.h>
+#include <SPI.h>
+
+void setup() {
+    // Setup code
+}
+
+void loop() {
+    // Loop code
+}
+"""
+            )
+            temp_path = Path(f.name)
+
+        try:
+            dependencies = _parse_sketch_dependencies(temp_path)
+
+            self.assertEqual(len(dependencies), 3)
+            self.assertIn("WiFiManager", dependencies)
+            self.assertIn("PubSubClient", dependencies)
+            self.assertIn("SPI", dependencies)
+        finally:
+            temp_path.unlink()
+
     def test_parse_sketch_dependencies_no_deps(self) -> None:
         """Test parsing a sketch file with no dependencies."""
         # Create a temporary sketch file without dependencies

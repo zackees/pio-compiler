@@ -966,10 +966,18 @@ def main(argv: list[str] | None = None) -> int:
 def _parse_sketch_dependencies(sketch_path: Path) -> list[str]:
     """Parse dependencies from sketch header comments.
 
-    Looks for embedded dependencies in the first 5 lines of a sketch file:
+    Looks for embedded dependencies in the first 5 lines of a sketch file.
+    Supports both triple-slash and double-slash formats:
+
+    Triple-slash format:
     /// SKETCH-INFO
     /// dependencies = ["FastLED", "ArduinoJson"]
     /// SKETCH-INFO
+
+    Double-slash format:
+    // SKETCH-INFO
+    // dependencies = ["FastLED", "ArduinoJson"]
+    // SKETCH-INFO
 
     Args:
         sketch_path: Path to the sketch file (.ino) or directory containing sketch
@@ -1006,7 +1014,8 @@ def _parse_sketch_dependencies(sketch_path: Path) -> list[str]:
         # Look for the dependency block
         in_dependency_block = False
         for line in lines:
-            if line == "/// SKETCH-INFO":
+            # Support both /// and // formats
+            if line == "/// SKETCH-INFO" or line == "// SKETCH-INFO":
                 if in_dependency_block:
                     # Second SKETCH-INFO marker - end of block
                     break
@@ -1014,9 +1023,16 @@ def _parse_sketch_dependencies(sketch_path: Path) -> list[str]:
                     # First SKETCH-INFO marker - start of block
                     in_dependency_block = True
                     continue
-            elif in_dependency_block and line.startswith("/// dependencies = "):
+            elif in_dependency_block and (
+                line.startswith("/// dependencies = ")
+                or line.startswith("// dependencies = ")
+            ):
                 # Parse the dependencies list
-                deps_str = line[len("/// dependencies = ") :].strip()
+                if line.startswith("/// dependencies = "):
+                    deps_str = line[len("/// dependencies = ") :].strip()
+                else:  # line.startswith("// dependencies = ")
+                    deps_str = line[len("// dependencies = ") :].strip()
+
                 if deps_str.startswith("[") and deps_str.endswith("]"):
                     # Simple parsing of the list format
                     deps_str = deps_str[1:-1]  # Remove brackets
