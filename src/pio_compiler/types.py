@@ -198,7 +198,7 @@ build_flags =
     # working PlatformIO configuration so that users can compile sketches
     # with the intuitive command‐line form::
     #
-    #     pio-compile examples/Blink --uno
+    #     tpo examples/Blink --uno
     #
     # without having to hand‐craft a custom *platformio.ini* file.  The
     # mapping is intentionally *minimalist* and only covers targets that are

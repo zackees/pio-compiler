@@ -3,7 +3,7 @@
 The test invokes the *console‐script* entry point exactly how an end user would call
 it on the command line::
 
-    pio-compile tests/test_data/examples/LuminescentGrand --teensy30
+    tpo tests/test_data/examples/LuminescentGrand --teensy30
 
 NOTE: This test currently expects failure on Windows due to missing C++ standard library
 headers in the Teensy toolchain (bits/c++config.h). See analysis.md for detailed
@@ -41,7 +41,7 @@ class CliTeensy30LuminescentGrandTest(unittest.TestCase):
 
         project_root = Path(__file__).resolve().parent.parent.parent
 
-        cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --teensy30"
+        cmd = f"tpo {self.EXAMPLE_REL_PATH} --teensy30"
 
         result = subprocess.run(
             cmd,

@@ -24,7 +24,7 @@ class CliPurgeIntegrationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"Purge command failed: {result.stderr}")
 
         # Should contain expected output
-        self.assertIn("pio-compiler purge", result.stdout)
+        self.assertIn("tpo purge", result.stdout)
         self.assertIn("Cache purge completed", result.stdout)
 
     def test_purge_command_output_format(self) -> None:
@@ -47,8 +47,7 @@ class CliPurgeIntegrationTest(unittest.TestCase):
 
         # Should start with banner
         self.assertTrue(
-            lines[0].startswith("⚡ pio-compiler purge")
-            or lines[0].startswith("* pio-compiler purge")
+            lines[0].startswith("⚡ tpo purge") or lines[0].startswith("* tpo purge")
         )
 
         # Should end with completion message

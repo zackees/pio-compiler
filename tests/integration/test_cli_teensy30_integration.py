@@ -3,7 +3,7 @@
 The test invokes the *console‐script* entry point exactly how an end user would call
 it on the command line::
 
-    pio-compile tests/test_data/examples/Blink --teensy30
+    tpo tests/test_data/examples/Blink --teensy30
 
 It asserts that the command exits with a *zero* status code which means the build
 succeeded.
@@ -33,7 +33,7 @@ class CliTeensy30AlternativeSyntaxTest(unittest.TestCase):
 
         project_root = Path(__file__).resolve().parent.parent.parent
 
-        cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --teensy30"
+        cmd = f"tpo {self.EXAMPLE_REL_PATH} --teensy30"
 
         result = subprocess.run(
             cmd,

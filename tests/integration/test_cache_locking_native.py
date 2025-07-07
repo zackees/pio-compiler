@@ -55,7 +55,7 @@ void loop() {
             try:
                 # Use the CLI to compile the project with native platform
                 cmd = [
-                    "pio-compile",
+                    "tpo",
                     str(self.test_project),
                     "--native",
                     "--cache-root",

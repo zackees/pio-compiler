@@ -3,7 +3,7 @@
 The tests exercise the *alternative* argument syntax that allows users to
 call the CLI as::
 
-    pio-compile tests/test_data/examples/Blink --native
+    tpo tests/test_data/examples/Blink --native
 
 The order differs from the canonical form (*platform first, sources via
 ``--src`` flags*) that the original implementation expected.  A light‐weight
@@ -44,7 +44,7 @@ class CliAlternativeSyntaxTest(unittest.TestCase):
         # ``[project.scripts]`` in *pyproject.toml*.  Using the actual shell
         # command mirrors real-world usage much closer than ``python -m`` and
         # ensures that the packaging metadata remains correct.
-        cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --native"
+        cmd = f"tpo {self.EXAMPLE_REL_PATH} --native"
 
         result = subprocess.run(
             cmd,

@@ -103,7 +103,14 @@ def _tool_version() -> str:
 # Determine whether the current stdout encoding supports common Unicode symbols.
 _UNICODE_OK = True
 try:
-    "⚡".encode(sys.stdout.encoding or "utf-8")
+    # Check if we can encode Unicode - be more robust about the encoding check
+    encoding = sys.stdout.encoding
+    if encoding is None or encoding.lower() in ("ascii", "cp1252", "cp437"):
+        # Common Windows encodings that don't support Unicode well
+        _UNICODE_OK = False
+    else:
+        # Try to encode a test character
+        "⚡".encode(encoding)
 except Exception:  # pragma: no cover – fallback when encoding unsupported
     _UNICODE_OK = False
 
@@ -163,7 +170,7 @@ def _print_startup_banner(
 ) -> None:  # noqa: D401
     """Print a colourful npm-style banner summarising build configuration."""
 
-    header = f"{_BOLD}{_CYAN}{LIGHTNING} pio-compiler v{_tool_version()}{_RESET}"
+    header = f"{_BOLD}{_CYAN}{LIGHTNING} tpo v{_tool_version()}{_RESET}"
     print(header)
 
     if incremental and fast_dir is not None:
@@ -650,7 +657,7 @@ def _run_cli(arguments: list[str]) -> int:
     # Handle purge operation - runs immediately and exits
     # ------------------------------------------------------------------
     if args.purge:
-        print(f"{_BOLD}{_CYAN}{LIGHTNING} pio-compiler purge{_RESET}")
+        print(f"{_BOLD}{_CYAN}{LIGHTNING} tpo purge{_RESET}")
         print()
 
         # Purge global cache
@@ -1371,7 +1378,7 @@ def _run_cli(arguments: list[str]) -> int:
 
             # Choose icon and color based on success
             if result.exit_code == 0:
-                status_icon = f"{_GREEN}{_sym('✓', '[✓]')}{_RESET}"
+                status_icon = f"{_GREEN}{_sym('✓', '[OK]')}{_RESET}"
             else:
                 status_icon = f"{_RED}{_sym('✗', '[x]')}{_RESET}"
 

@@ -37,7 +37,7 @@ class CliReportTest(unittest.TestCase):
             temp_report_dir = Path(temp_dir)
 
             # Run the CLI with --report flag
-            cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --native --report {temp_report_dir}"
+            cmd = f"tpo {self.EXAMPLE_REL_PATH} --native --report {temp_report_dir}"
 
             result = subprocess.run(
                 cmd,
@@ -92,7 +92,7 @@ class CliReportTest(unittest.TestCase):
         project_root = Path(__file__).resolve().parent.parent.parent
 
         # Run the CLI with --info flag (should work without creating platformio.ini.tpo)
-        cmd = f"pio-compile {self.EXAMPLE_REL_PATH} --native --info"
+        cmd = f"tpo {self.EXAMPLE_REL_PATH} --native --info"
 
         result = subprocess.run(
             cmd,

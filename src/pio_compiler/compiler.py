@@ -58,6 +58,7 @@ class PioCompilerImpl:
         self.force_rebuild = force_rebuild
         self.info_mode = info_mode
         self.cache_entry = cache_entry
+        self._cached_library_script: str | None = None
         logger.debug(
             "Creating PioCompilerImpl for platform %s (force_rebuild=%s, info_mode=%s)",
             platform.name,
@@ -774,7 +775,39 @@ class PioCompilerImpl:
                         )
                         # Continue with compilation even if platform setup fails
 
+            # ------------------------------------------------------------------
+            # Check for cached library archives BEFORE setting up turbo dependencies
+            # ------------------------------------------------------------------
+            # using_cached_fastled = False
+
+            # Detect if FastLED is being used
+            fastled_in_deps = False
+            if self.platform.turbo_dependencies:
+                fastled_in_deps = any(
+                    dep.lower() == "fastled" for dep in self.platform.turbo_dependencies
+                )
+
+            # If not in turbo deps, check if it's in the sketch
+            if not fastled_in_deps and src_dir.exists():
+                fastled_in_deps = self._detect_fastled_usage(src_dir)
+
+            # Check for cached FastLED archive if it's being used
+            if fastled_in_deps and not self.force_rebuild:
+                logger.debug("Checking for cached FastLED library archive")
+                cached_used = self._check_and_use_cached_library(
+                    project_dir=project_dir,
+                    library_name="FastLED",
+                    library_version="3.10.1",  # TODO: Detect version from dependencies
+                )
+                if cached_used:
+                    logger.info("Using cached FastLED library archive for faster build")
+                    # using_cached_fastled = True
+
+            # ------------------------------------------------------------------
             # Set up turbo dependencies (libraries downloaded and symlinked)
+            # We still download all libraries even if using cached versions,
+            # because we need the headers
+            # ------------------------------------------------------------------
             if self.platform.turbo_dependencies:
                 # Check if dependencies are already set up in cache to avoid redundant work
                 skip_turbo_setup = False
@@ -806,7 +839,7 @@ class PioCompilerImpl:
                         logger.warning("Failed to setup turbo dependencies: %s", exc)
                         # Continue with compilation even if turbo dependencies fail
 
-            # --------------------------------------------------------------
+            # ------------------------------------------------------------------
             # When compiling for the *uno* platform we emit user-friendly
             # *print* statements that highlight the directories and build
             # artefacts involved.  The messages are intentionally kept very
@@ -963,6 +996,46 @@ class PioCompilerImpl:
             ini_path = project_dir / "platformio.ini"
             # Use project-specific platformio.ini generation that can handle local platform paths
             ini_content = self.platform.get_platformio_ini_for_project(project_dir)
+
+            # If we have a cached library script, add it to extra_scripts
+            if self._cached_library_script:
+                logger.debug("Adding cached library script to extra_scripts")
+                # Parse the ini content and add extra_scripts
+                lines = ini_content.strip().split("\n")
+                new_lines = []
+                in_env_section = False
+                extra_scripts_found = False
+
+                for line in lines:
+                    if line.startswith("[env:"):
+                        in_env_section = True
+                    elif line.startswith("[") and in_env_section:
+                        # End of env section, add extra_scripts if not found
+                        if not extra_scripts_found:
+                            new_lines.append("extra_scripts = use_cached_library.py")
+                            new_lines.append("")
+                        in_env_section = False
+                        extra_scripts_found = False
+
+                    if in_env_section and line.strip().startswith("extra_scripts"):
+                        extra_scripts_found = True
+                        # Add to existing extra_scripts
+                        if "=" in line:
+                            # Append to the existing line
+                            new_lines.append(line.rstrip() + ", use_cached_library.py")
+                        else:
+                            new_lines.append(line)
+                        continue
+
+                    new_lines.append(line)
+
+                # Handle case where we're still in env section at the end
+                if in_env_section and not extra_scripts_found:
+                    new_lines.append("extra_scripts = use_cached_library.py")
+
+                ini_content = "\n".join(new_lines)
+                logger.debug("Modified platformio.ini to include cached library script")
+
             ini_path.write_text(ini_content, encoding="utf-8")
 
             # ------------------------------------------------------------------
@@ -1357,3 +1430,84 @@ class PioCompilerImpl:
             logger.error(f"Failed to create {library_name} archive")
 
         return success
+
+    def _check_and_use_cached_library(
+        self,
+        project_dir: Path,
+        library_name: str,
+        library_version: str,
+    ) -> bool:
+        """Check if a cached library archive exists and set it up for use.
+
+        This method checks if we have a cached archive for the library and if so,
+        sets up the build to use the prebuilt archive instead of compiling from source.
+
+        Args:
+            project_dir: The PlatformIO project directory
+            library_name: Name of the library (e.g., "FastLED")
+            library_version: Version of the library (e.g., "3.10.1")
+
+        Returns:
+            True if cached archive was found and set up, False otherwise
+        """
+        # Initialize archive manager
+        archive_manager = LibraryArchiveManager(cache_root=self._work_dir.parent)
+
+        # Get archive path for this library configuration
+        archive_path = archive_manager.get_archive_path(
+            library_name=library_name,
+            library_version=library_version,
+            platform=self.platform.name,
+            build_flags=None,  # TODO: Extract build flags from platformio.ini
+        )
+
+        # Check if archive exists
+        if not archive_manager.archive_exists(archive_path):
+            logger.debug(
+                f"No cached archive found for {library_name} {library_version}"
+            )
+            return False
+
+        logger.info(f"Found cached archive for {library_name}: {archive_path}")
+
+        # Copy the archive to a location where PlatformIO can find it
+        pio_libdeps_dir = project_dir / ".pio" / "libdeps" / "dev"
+        pio_libdeps_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy archive to the libdeps directory
+        archive_dest = pio_libdeps_dir / f"lib{library_name.lower()}_cached.a"
+        shutil.copy2(archive_path, archive_dest)
+
+        # Create an extra script to handle the cached library
+        extra_script_content = f'''
+Import("env")
+
+# Cached library configuration
+CACHED_LIBRARY_NAME = "{library_name.lower()}"
+CACHED_ARCHIVE_PATH = r"{str(archive_dest).replace(chr(92), '/')}"
+
+print("Configuring build to use cached {library_name} archive")
+
+# Function to exclude library sources from build
+def skip_library_build(nodes):
+    """Filter out library source files from compilation."""
+    return [node for node in nodes if CACHED_LIBRARY_NAME not in str(node).lower() or not str(node).endswith(('.c', '.cpp', '.cc', '.cxx'))]
+
+# Hook into the build process
+env.AddBuildMiddleware(skip_library_build, "*")
+
+# Add the cached archive to linker flags
+env.Append(LINKFLAGS=[CACHED_ARCHIVE_PATH])
+
+print(f"Using cached {{CACHED_LIBRARY_NAME}} library: {{CACHED_ARCHIVE_PATH}}")
+'''
+
+        # Write the extra script
+        extra_script_path = project_dir / "use_cached_library.py"
+        extra_script_path.write_text(extra_script_content, encoding="utf-8")
+
+        # Store the extra script path to add to platformio.ini
+        self._cached_library_script = str(extra_script_path)
+
+        logger.info(f"Set up cached {library_name} library archive for use in build")
+        return True

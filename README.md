@@ -4,7 +4,7 @@ This is a special project to efficiently compile code using platformio.
 
 ## Runtime
 
-  * `pio-compile native --src test/test_data/example/Blink --src test/test_data/example/Blur`
+  * `tpo native --src test/test_data/example/Blink --src test/test_data/example/Blur`
 
 
 ## Implimentation details

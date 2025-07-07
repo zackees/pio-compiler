@@ -8,13 +8,13 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "c:/Users/niteris/dev/pio-compiler/tests/test_data/examples/Blink",
+                "c:/Users/niteris/dev/tpo/tests/test_data/examples/Blink",
                 ""
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "c:/Users/niteris/dev/pio-compiler/tests/test_data/examples/Blink",
+                    "c:/Users/niteris/dev/tpo/tests/test_data/examples/Blink",
                     ""
                 ]
             },

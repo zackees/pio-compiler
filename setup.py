@@ -7,7 +7,7 @@ import re
 
 from setuptools import setup
 
-URL = "https://github.com/zackees/pio-compiler"
+URL = "https://github.com/zackees/tpo"
 KEYWORDS = "platformio poi compile arduino esp32"
 HERE = os.path.dirname(os.path.abspath(__file__))
 
